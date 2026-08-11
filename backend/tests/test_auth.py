@@ -1,0 +1,38 @@
+import hashlib, hmac, time, json
+from fastapi.testclient import TestClient
+from unittest.mock import patch
+from app.main import app
+from app.config import settings
+
+client = TestClient(app)
+
+def make_init_data(user_id: int, bot_token: str, offset_sec: int = 0) -> str:
+    auth_date = str(int(time.time()) - offset_sec)
+    user = json.dumps({"id": user_id, "first_name": "Test"})
+    params = {"auth_date": auth_date, "user": user}
+    data_check = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
+    secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    h = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+    return f"auth_date={auth_date}&user={user}&hash={h}"
+
+def test_valid_teacher_gets_token():
+    init_data = make_init_data(settings.teacher_telegram_id, settings.bot_token)
+    r = client.post("/api/auth/telegram", json={"init_data": init_data})
+    assert r.status_code == 200
+    assert "access_token" in r.json()
+
+def test_wrong_user_gets_403():
+    init_data = make_init_data(99999999, settings.bot_token)
+    r = client.post("/api/auth/telegram", json={"init_data": init_data})
+    assert r.status_code == 403
+
+def test_expired_auth_date_gets_401():
+    init_data = make_init_data(settings.teacher_telegram_id, settings.bot_token, offset_sec=400)
+    r = client.post("/api/auth/telegram", json={"init_data": init_data})
+    assert r.status_code == 401
+
+def test_tampered_hash_gets_401():
+    init_data = make_init_data(settings.teacher_telegram_id, settings.bot_token)
+    bad = init_data.replace("hash=", "hash=00")
+    r = client.post("/api/auth/telegram", json={"init_data": bad})
+    assert r.status_code == 401

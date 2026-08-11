@@ -1,11 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 from app.config import settings
 from app.bot.handlers import start as start_handler
+from app.api import auth as auth_api
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,20 @@ async def lifespan(app: FastAPI):
         logger.exception("Failed to delete Telegram webhook")
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        settings.miniapp_url,
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+app.include_router(auth_api.router)
 
 
 @app.post("/webhook/telegram/{secret}")
