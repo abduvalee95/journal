@@ -1,0 +1,26 @@
+# Secrets — never commit
+.env
+*.env
+!.env.example
+backend/.env
+miniapp/.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Data
+data/
+backend/data/
+*.db
+*.db-journal
+
+# Node
+node_modules/
+miniapp/dist/
+
+# OS
+.DS_Store
