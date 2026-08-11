@@ -18,7 +18,11 @@ def _verify(init_data: str) -> dict:
     expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(received, expected):
         raise HTTPException(401, "Invalid signature")
-    if time.time() - int(params.get("auth_date", 0)) > 300:
+    try:
+        auth_date = int(params.get("auth_date", 0))
+    except ValueError:
+        raise HTTPException(401, "Invalid auth_date")
+    if time.time() - auth_date > 300:
         raise HTTPException(401, "auth_date expired")
     return params
 

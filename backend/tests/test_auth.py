@@ -1,6 +1,5 @@
 import hashlib, hmac, time, json
 from fastapi.testclient import TestClient
-from unittest.mock import patch
 from app.main import app
 from app.config import settings
 
@@ -35,4 +34,16 @@ def test_tampered_hash_gets_401():
     init_data = make_init_data(settings.teacher_telegram_id, settings.bot_token)
     bad = init_data.replace("hash=", "hash=00")
     r = client.post("/api/auth/telegram", json={"init_data": bad})
+    assert r.status_code == 401
+
+def test_malformed_auth_date_gets_401():
+    # auth_date present but non-numeric, with a correctly computed signature
+    # for that exact payload -- must fail parsing (401), not crash (500).
+    user = json.dumps({"id": settings.teacher_telegram_id, "first_name": "Test"})
+    params = {"auth_date": "not-a-number", "user": user}
+    data_check = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
+    secret = hmac.new(b"WebAppData", settings.bot_token.encode(), hashlib.sha256).digest()
+    h = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+    init_data = f"auth_date=not-a-number&user={user}&hash={h}"
+    r = client.post("/api/auth/telegram", json={"init_data": init_data})
     assert r.status_code == 401
