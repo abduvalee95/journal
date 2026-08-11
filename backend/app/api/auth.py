@@ -29,7 +29,12 @@ def _verify(init_data: str) -> dict:
 @router.post("/api/auth/telegram")
 async def auth_telegram(body: InitDataReq):
     params = _verify(body.init_data)
-    user = json.loads(params.get("user", "{}"))
+    try:
+        user = json.loads(params.get("user", "{}"))
+    except json.JSONDecodeError:
+        raise HTTPException(401, "Invalid user payload")
+    if not isinstance(user, dict):
+        raise HTTPException(401, "Invalid user payload")
     if user.get("id") != settings.teacher_telegram_id:
         raise HTTPException(403, "Not authorized")
     token = jwt.encode(

@@ -8,6 +8,7 @@ from aiogram.types import Update
 from app.config import settings
 from app.bot.handlers import start as start_handler
 from app.api import auth as auth_api
+from app.api import lessons as lessons_api
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_api.router)
+app.include_router(lessons_api.router)
 
 
 @app.post("/webhook/telegram/{secret}")

@@ -47,3 +47,29 @@ def test_malformed_auth_date_gets_401():
     init_data = f"auth_date=not-a-number&user={user}&hash={h}"
     r = client.post("/api/auth/telegram", json={"init_data": init_data})
     assert r.status_code == 401
+
+def test_malformed_user_json_gets_401():
+    # user field is present and correctly signed, but is not valid JSON at
+    # all -- json.loads must fail parsing (401), not crash (500).
+    auth_date = str(int(time.time()))
+    user_raw = "not-json-at-all"
+    params = {"auth_date": auth_date, "user": user_raw}
+    data_check = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
+    secret = hmac.new(b"WebAppData", settings.bot_token.encode(), hashlib.sha256).digest()
+    h = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+    init_data = f"auth_date={auth_date}&user={user_raw}&hash={h}"
+    r = client.post("/api/auth/telegram", json={"init_data": init_data})
+    assert r.status_code == 401
+
+def test_non_dict_user_json_gets_401():
+    # user field is valid JSON but not an object -- user.get("id") would
+    # otherwise raise AttributeError (500) instead of a clean 401.
+    auth_date = str(int(time.time()))
+    user_raw = json.dumps([1, 2, 3])
+    params = {"auth_date": auth_date, "user": user_raw}
+    data_check = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
+    secret = hmac.new(b"WebAppData", settings.bot_token.encode(), hashlib.sha256).digest()
+    h = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+    init_data = f"auth_date={auth_date}&user={user_raw}&hash={h}"
+    r = client.post("/api/auth/telegram", json={"init_data": init_data})
+    assert r.status_code == 401
