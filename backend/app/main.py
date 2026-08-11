@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
@@ -9,6 +10,7 @@ from app.config import settings
 from app.bot.handlers import start as start_handler
 from app.api import auth as auth_api
 from app.api import lessons as lessons_api
+from app.services.outbox import run_outbox
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,13 @@ async def lifespan(app: FastAPI):
         await bot.set_webhook(webhook_url, secret_token=settings.webhook_secret)
     except Exception:
         logger.exception("Failed to register Telegram webhook at %s", webhook_url)
+    task = asyncio.create_task(run_outbox(bot))
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
     try:
         await bot.delete_webhook()
     except Exception:

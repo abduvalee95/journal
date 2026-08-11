@@ -4,9 +4,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_session
-from app.db.models import Group, Lesson, Student, Attendance
+from app.db.models import Group, Lesson, Student, Attendance, Outbox
 from app.api.deps import require_teacher
 from app.utils.localtime import today, weekday, bishkek_now
+from app.services.report import build_report
 
 router = APIRouter()
 
@@ -164,5 +165,35 @@ async def patch_attendance(
     att.status = body.status
     att.grade = body.grade
     att.note_public = body.note_public
+    await session.commit()
+    return {"ok": True}
+
+
+@router.post("/api/lessons/{lesson_id}/confirm")
+async def confirm_lesson(
+    lesson_id: int,
+    _: int = Depends(require_teacher),
+    session: AsyncSession = Depends(get_session),
+):
+    lesson = await session.get(Lesson, lesson_id)
+    if not lesson or lesson.status != "draft":
+        return {"ok": True}   # idempotent: unknown lesson or already confirmed
+    lesson.status = "saved"
+    lesson.saved_at = bishkek_now().isoformat()
+    group = await session.get(Group, lesson.group_id)
+    att_rows = (await session.execute(
+        select(Attendance).where(Attendance.lesson_id == lesson_id)
+    )).scalars().all()
+    for att in att_rows:
+        student = await session.get(Student, att.student_id)
+        if not student or not student.is_active:
+            continue
+        text = build_report(lesson, att, group)
+        session.add(Outbox(
+            student_id=att.student_id,
+            lesson_id=lesson_id,
+            text=text,
+            created_at=bishkek_now().isoformat(),
+        ))
     await session.commit()
     return {"ok": True}
