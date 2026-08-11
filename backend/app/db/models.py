@@ -28,7 +28,7 @@ class Lesson(Base):
     __tablename__ = "lessons"
     id             = Column(Integer, primary_key=True)
     group_id       = Column(Integer, ForeignKey("groups.id"), nullable=False)
-    lesson_date    = Column(Text, nullable=False)   # YYYY-MM-DD Tashkent
+    lesson_date    = Column(Text, nullable=False)   # YYYY-MM-DD Asia/Bishkek
     topic          = Column(Text)
     raw_note       = Column(Text)                   # NEVER sent to students
     audio_file_id  = Column(Text)
