@@ -17,6 +17,8 @@ A Telegram Bot + Mini App for a language teacher to record daily attendance, gra
 - Voice note sent **after class**, one per lesson
 - Student reports: class summary + personal grade (1–5) + personal note
 - Completely separate from existing NestJS/Postgres project
+- **Location:** Ош, Қирғизистон — timezone `Asia/Bishkek` (UTC+6)
+- **UI language:** O'zbek tili, **Krill yozuvi** (barcha bot xabarlari va Mini App matni)
 
 ---
 
@@ -115,7 +117,7 @@ CREATE TABLE ai_jobs (
 **Notes:**
 - No `invite_token` per student — students self-register via bot
 - No `join_token` per group — open registration
-- All dates stored as ISO strings in Asia/Tashkent time
+- All dates stored as ISO strings in Asia/Bishkek time
 - `raw_note` and `note_private` never appear in any student-facing API response (enforced by separate Pydantic output schemas)
 
 ---
@@ -124,15 +126,15 @@ CREATE TABLE ai_jobs (
 
 ```
 Student sends any message or /start to bot
-  → bot: "Ismingiz va familiyangiz?"
+  → bot: "Исмингиз ва фамилиянгиз?"
   → student types name
   → bot shows group selection (inline keyboard, active groups only)
   → student selects group
   → INSERT INTO students (telegram_id, full_name, group_id, joined_at)
-  → bot: "Ro'yxatdan o'tdingiz! Dars hisobotlari shu yerga keladi."
+  → bot: "Рўйхатдан ўтдингиз! Дарс ҳисоботлари шу ерга келади."
 ```
 
-If student already registered → bot shows their current group, offers to change.
+If student already registered → bot: "Сиз аллақачон рўйхатдасиз: [ism]"
 
 ---
 
@@ -216,17 +218,17 @@ Telegram.WebApp.initData → POST /api/auth/telegram
 ## 7. Student Report Message Format
 
 ```
-📚 [Group name] — [Date, e.g. "11 avgust 2026"]
-Mavzu: [topic]
+📚 [Гуруҳ номи] — [11 август 2026]
+Мавзу: [topic]
 
 [summary_public]
 
 ---
-✅ Davomat: Keldingiz          (or ❌ Kelmadingiz / 🕐 Kech keldingiz)
-⭐ Baho: 4/5                   (omitted if absent)
-💬 [note_public]               (omitted if empty)
+✅ Даводим: Келдингиз          (ёки ❌ Келмадингиз / 🕐 Кеч келдингиз)
+⭐ Баҳо: 4/5                   (йўқ, агар келмаган бўлса)
+💬 [note_public]               (йўқ, агар бўш бўлса)
 
-📝 Uy vazifasi: [homework]     (omitted if empty)
+📝 Уй вазифаси: [homework]     (йўқ, агар бўш бўлса)
 ```
 
 Privacy rules (enforced in code):
@@ -300,7 +302,7 @@ ustoz-jurnali/
 │   │   │   ├── report.py        # build student message text
 │   │   │   └── outbox.py        # asyncio worker + retry logic
 │   │   └── utils/
-│   │       └── tashkent.py      # Asia/Tashkent helpers, today(), weekday()
+│   │       └── localtime.py      # Asia/Bishkek helpers, today(), weekday()
 │   ├── alembic/
 │   ├── tests/
 │   ├── requirements.txt
@@ -365,7 +367,7 @@ DATABASE_URL=sqlite+aiosqlite:///./data/journal.db
 ELEVENLABS_API_KEY=
 LLM_API_KEY=             # Anthropic
 LLM_MODEL=claude-haiku-4-5-20251001
-TZ=Asia/Tashkent
+TZ=Asia/Bishkek
 ```
 
 ---

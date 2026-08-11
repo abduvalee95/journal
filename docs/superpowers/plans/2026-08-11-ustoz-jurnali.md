@@ -10,7 +10,9 @@
 
 ## Global Constraints
 
-- All dates/times computed in `Asia/Tashkent` (UTC+5) — use `zoneinfo.ZoneInfo("Asia/Tashkent")`
+- **Location:** Ош, Қирғизистон — timezone `Asia/Bishkek` (UTC+6)
+- All dates/times computed in `Asia/Bishkek` (UTC+6) — use `zoneinfo.ZoneInfo("Asia/Bishkek")`
+- **UI language:** All bot messages and Mini App labels in **Uzbek Cyrillic (Кирилл)**
 - `raw_note` and `note_private` never appear in any student-facing response — enforced by separate Pydantic output schemas
 - Only `TEACHER_TELEGRAM_ID` (env var) can access `/api/*` endpoints
 - One active group per weekday (`UNIQUE(weekday, is_active)`)
@@ -49,13 +51,13 @@ ustoz-jurnali/
 │   │   │   ├── report.py        # build_report(lesson, attendance, group) → str
 │   │   │   └── outbox.py        # run_outbox(bot) coroutine, 30s loop, retry logic
 │   │   └── utils/
-│   │       └── tashkent.py      # tashkent_now(), today(), weekday(), format_date_uz()
+│   │       └── localtime.py      # tashkent_now(), today(), weekday(), format_date_uz()
 │   ├── alembic/
 │   │   ├── env.py
 │   │   └── versions/
 │   ├── tests/
 │   │   ├── conftest.py
-│   │   ├── test_tashkent.py
+│   │   ├── test_localtime.py
 │   │   ├── test_auth.py
 │   │   ├── test_matcher.py
 │   │   ├── test_report.py
@@ -362,8 +364,8 @@ git commit -m "feat: db models, alembic migration, seed 6 groups"
 ### Task 3: Timezone utilities
 
 **Files:**
-- Create: `backend/app/utils/tashkent.py`
-- Create: `backend/tests/test_tashkent.py`
+- Create: `backend/app/utils/localtime.py`
+- Create: `backend/tests/test_localtime.py`
 
 **Interfaces:**
 - Produces: `tashkent_now() → datetime`, `today() → str`, `weekday() → int`, `format_date_uz(d: str) → str`
@@ -371,55 +373,55 @@ git commit -m "feat: db models, alembic migration, seed 6 groups"
 - [ ] **Step 1: Write failing tests**
 
 ```python
-# tests/test_tashkent.py
+# tests/test_localtime.py
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from unittest.mock import patch
 
-TZ = ZoneInfo("Asia/Tashkent")
+TZ = ZoneInfo("Asia/Bishkek")
 
 def _mock(dt_str):
     return datetime.fromisoformat(dt_str).replace(tzinfo=TZ)
 
 def test_weekday_monday():
-    with patch("app.utils.tashkent.tashkent_now", return_value=_mock("2026-08-10T12:00:00")):
-        from app.utils.tashkent import weekday
+    with patch("app.utils.localtime.tashkent_now", return_value=_mock("2026-08-10T12:00:00")):
+        from app.utils.localtime import weekday
         assert weekday() == 1
 
 def test_weekday_saturday():
-    with patch("app.utils.tashkent.tashkent_now", return_value=_mock("2026-08-15T12:00:00")):
-        from app.utils.tashkent import weekday
+    with patch("app.utils.localtime.tashkent_now", return_value=_mock("2026-08-15T12:00:00")):
+        from app.utils.localtime import weekday
         assert weekday() == 6
 
 def test_today_returns_iso():
-    with patch("app.utils.tashkent.tashkent_now", return_value=_mock("2026-08-10T12:00:00")):
-        from app.utils.tashkent import today
+    with patch("app.utils.localtime.tashkent_now", return_value=_mock("2026-08-10T12:00:00")):
+        from app.utils.localtime import today
         assert today() == "2026-08-10"
 
 def test_format_date_uz():
-    from app.utils.tashkent import format_date_uz
-    assert format_date_uz("2026-08-11") == "11 avgust 2026"
-    assert format_date_uz("2026-01-01") == "1 yanvar 2026"
+    from app.utils.localtime import format_date_uz
+    assert format_date_uz("2026-08-11") == "11 август 2026"
+    assert format_date_uz("2026-01-01") == "1 январ 2026"
 ```
 
 - [ ] **Step 2: Run — verify FAIL**
 
 ```bash
-pytest tests/test_tashkent.py -v
+pytest tests/test_localtime.py -v
 # Expected: ImportError or AttributeError
 ```
 
-- [ ] **Step 3: Implement tashkent.py**
+- [ ] **Step 3: Implement localtime.py**
 
 ```python
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
-TZ = ZoneInfo("Asia/Tashkent")
+TZ = ZoneInfo("Asia/Bishkek")
 
 MONTHS_UZ = [
-    "yanvar","fevral","mart","aprel","may","iyun",
-    "iyul","avgust","sentabr","oktabr","noyabr","dekabr"
+    "январ","феврал","март","апрел","май","июн",
+    "июл","август","сентябр","октябр","ноябр","декабр"
 ]
 
 def tashkent_now() -> datetime:
@@ -439,15 +441,15 @@ def format_date_uz(d: str) -> str:
 - [ ] **Step 4: Run — verify PASS**
 
 ```bash
-pytest tests/test_tashkent.py -v
+pytest tests/test_localtime.py -v
 # Expected: 4 passed
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/app/utils/tashkent.py backend/tests/test_tashkent.py
-git commit -m "feat: Asia/Tashkent timezone helpers"
+git add backend/app/utils/localtime.py backend/tests/test_localtime.py
+git commit -m "feat: Asia/Bishkek timezone helpers"
 ```
 
 ---
@@ -498,7 +500,7 @@ from sqlalchemy import select
 from app.db.session import AsyncSessionLocal
 from app.db.models import Student, Group
 from app.bot.keyboards import group_keyboard
-from app.utils.tashkent import tashkent_now
+from app.utils.localtime import tashkent_now
 
 router = Router()
 
@@ -511,10 +513,10 @@ async def cmd_start(msg: Message, state: FSMContext):
     async with AsyncSessionLocal() as s:
         existing = await s.scalar(select(Student).where(Student.telegram_id == msg.from_user.id))
     if existing:
-        await msg.answer(f"Siz allaqachon ro'yxatdasiz: {existing.full_name}")
+        await msg.answer(f"Сиз аллақачон рўйхатдасиз: {existing.full_name}")
         return
     await state.set_state(Reg.name)
-    await msg.answer("Ismingiz va familiyangiz?")
+    await msg.answer("Исмингиз ва фамилиянгиз?")
 
 @router.message(Reg.name)
 async def got_name(msg: Message, state: FSMContext):
@@ -524,7 +526,7 @@ async def got_name(msg: Message, state: FSMContext):
             select(Group).where(Group.is_active == 1).order_by(Group.weekday)
         )).scalars().all()
     await state.set_state(Reg.group)
-    await msg.answer("Guruhingizni tanlang:", reply_markup=group_keyboard(groups))
+    await msg.answer("Гуруҳингизни танланг:", reply_markup=group_keyboard(groups))
 
 @router.callback_query(Reg.group, F.data.startswith("group:"))
 async def got_group(cb: CallbackQuery, state: FSMContext):
@@ -539,7 +541,7 @@ async def got_group(cb: CallbackQuery, state: FSMContext):
         ))
         await s.commit()
     await state.clear()
-    await cb.message.edit_text("Ro'yxatdan o'tdingiz! Dars hisobotlari shu yerga keladi.")
+    await cb.message.edit_text("Рўйхатдан ўтдингиз! Дарс ҳисоботлари шу ерга келади.")
 ```
 
 - [ ] **Step 3: Update main.py to wire bot + webhook**
@@ -590,9 +592,9 @@ async def health():
 ngrok http 8000
 # Copy https URL → set BASE_URL in .env
 uvicorn app.main:app --reload
-# Send /start to bot → expect "Ismingiz va familiyangiz?"
+# Send /start to bot → expect "Исмингиз ва фамилиянгиз?"
 # Type a name → expect group keyboard
-# Tap a group → expect "Ro'yxatdan o'tdingiz!"
+# Tap a group → expect "Рўйхатдан ўтдингиз!"
 sqlite3 data/journal.db "SELECT * FROM students;"
 ```
 
@@ -772,7 +774,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_session
 from app.db.models import Group, Lesson, Student, Attendance
 from app.api.deps import require_teacher
-from app.utils.tashkent import today, weekday, tashkent_now
+from app.utils.localtime import today, weekday, tashkent_now
 
 router = APIRouter()
 
@@ -993,22 +995,22 @@ def make(lesson_kw={}, att_kw={}, group_kw={}):
 def test_full_present():
     text = make()
     assert "Beginners A" in text
-    assert "11 avgust 2026" in text
+    assert "11 август 2026" in text
     assert "Present Perfect" in text
-    assert "✅ Keldingiz" in text
-    assert "⭐ Baho: 4/5" in text
+    assert "✅ Келдингиз" in text
+    assert "⭐ Баҳо: 4/5" in text
     assert "Yaxshi ishladi" in text
     assert "Workbook 42-43" in text
 
 def test_absent_no_grade():
     text = make(att_kw={"status": "absent", "grade": None, "note_public": None})
-    assert "❌ Kelmadingiz" in text
-    assert "Baho" not in text
+    assert "❌ Келмадингиз" in text
+    assert "Баҳо" not in text
 
 def test_late_shows_emoji():
     text = make(att_kw={"status": "late", "grade": 3, "note_public": None})
-    assert "🕐 Kech keldingiz" in text
-    assert "⭐ Baho: 3/5" in text
+    assert "🕐 Кеч келдингиз" in text
+    assert "⭐ Баҳо: 3/5" in text
 
 def test_empty_note_omitted():
     text = make(att_kw={"note_public": None})
@@ -1016,7 +1018,7 @@ def test_empty_note_omitted():
 
 def test_empty_homework_omitted():
     text = make(lesson_kw={"homework": None})
-    assert "Uy vazifasi" not in text
+    assert "Уй вазифаси" not in text
 
 def test_raw_note_not_in_report():
     text = make(lesson_kw={"topic": "SECRET raw_note content"})
@@ -1033,28 +1035,28 @@ pytest tests/test_report.py -v
 - [ ] **Step 3: Implement report.py**
 
 ```python
-from app.utils.tashkent import format_date_uz
+from app.utils.localtime import format_date_uz
 
 STATUS_LINE = {
-    "present": "✅ Keldingiz",
-    "absent":  "❌ Kelmadingiz",
-    "late":    "🕐 Kech keldingiz",
+    "present": "✅ Келдингиз",
+    "absent":  "❌ Келмадингиз",
+    "late":    "🕐 Кеч келдингиз",
 }
 
 def build_report(lesson, attendance, group) -> str:
     parts = [f"📚 {group.name} — {format_date_uz(lesson.lesson_date)}"]
     if lesson.topic:
-        parts.append(f"Mavzu: {lesson.topic}")
+        parts.append(f"Мавзу: {lesson.topic}")
     if lesson.summary_public:
         parts.append(f"\n{lesson.summary_public}")
     parts.append("\n---")
     parts.append(STATUS_LINE.get(attendance.status, attendance.status))
     if attendance.grade is not None:
-        parts.append(f"⭐ Baho: {attendance.grade}/5")
+        parts.append(f"⭐ Баҳо: {attendance.grade}/5")
     if attendance.note_public:
         parts.append(f"💬 {attendance.note_public}")
     if lesson.homework:
-        parts.append(f"\n📝 Uy vazifasi: {lesson.homework}")
+        parts.append(f"\n📝 Уй вазифаси: {lesson.homework}")
     return "\n".join(parts)
 ```
 
@@ -1074,7 +1076,7 @@ from aiogram.exceptions import TelegramForbiddenError
 from sqlalchemy import select
 from app.db.session import AsyncSessionLocal
 from app.db.models import Outbox, Student
-from app.utils.tashkent import tashkent_now
+from app.utils.localtime import tashkent_now
 
 async def run_outbox(bot: Bot):
     while True:
@@ -1417,7 +1419,7 @@ from app.services.asr import transcribe
 from app.services.llm import extract_lesson
 from app.services.matcher import match_names
 from app.bot.keyboards import confirm_keyboard
-from app.utils.tashkent import today, weekday, tashkent_now
+from app.utils.localtime import today, weekday, tashkent_now
 from app.config import settings
 
 router = Router()
@@ -1435,7 +1437,7 @@ async def handle_voice(message: Message):
             select(Group).where(Group.weekday == weekday(), Group.is_active == 1)
         )
         if not group:
-            await message.answer("Bugun dars guruh topilmadi.")
+            await message.answer("Бугун дарс гуруҳ топилмади.")
             return
         date = today()
         lesson = await s.scalar(
@@ -1455,7 +1457,7 @@ async def handle_voice(message: Message):
         student_map   = [{"id": st.id, "full_name": st.full_name} for st in students]
         lesson_id = lesson.id
 
-    await message.answer("⏳ Ovoz qayta ishlanmoqda...")
+    await message.answer("⏳ Овоз қайта ишланмоқда...")
     asyncio.create_task(_pipeline(
         message.bot, lesson_id, message.voice.file_id,
         student_names, student_map, message.chat.id
@@ -1508,9 +1510,9 @@ async def _pipeline(bot, lesson_id, file_id, student_names, student_map, chat_id
 
         unmatched = [p["name_mentioned"] for p in draft["per_student"]
                      if match.get(p["name_mentioned"]) is None]
-        msg = "✅ Qoralama tayyor — Mini App'da ko'ring"
+        msg = "✅ Қоралама тайёр — Mini App'да кўринг"
         if unmatched:
-            msg += f"\n⚠️ Topilmagan ismlar: {', '.join(unmatched)}"
+            msg += f"\n⚠️ Топилмаган исмлар: {', '.join(unmatched)}"
         await bot.send_message(chat_id, msg)
 
     except Exception as e:
@@ -1520,7 +1522,7 @@ async def _pipeline(bot, lesson_id, file_id, student_names, student_map, chat_id
                 job.status = "error"; job.error = str(e)
                 job.duration_ms = int((time.time()-t0)*1000)
                 await s.commit()
-        await bot.send_message(chat_id, "❌ AI ishlamadi, qo'lda kiriting")
+        await bot.send_message(chat_id, "❌ AI ишламади, қўлда киритинг")
 ```
 
 - [ ] **Step 2: Write confirm.py (inline keyboard callbacks)**
@@ -1825,9 +1827,9 @@ interface Props {
 }
 
 const STATUS_LABELS: Record<AttStatus, string> = {
-  present: "✅ Keldi",
-  absent:  "❌ Kelmadi",
-  late:    "🕐 Kech",
+  present: "✅ Келди",
+  absent:  "❌ Келмади",
+  late:    "🕐 Кеч",
 };
 
 export default function StudentRow({ student, onChange }: Props) {
@@ -1870,7 +1872,7 @@ export default function StudentRow({ student, onChange }: Props) {
       )}
       <input
         type="text"
-        placeholder="Izoh (ixtiyoriy)"
+        placeholder="Изоҳ (ихтиёрий)"
         value={student.note_public}
         onChange={(e) => set({ note_public: e.target.value })}
         className="w-full text-xs border rounded px-2 py-1 bg-gray-50"
@@ -1894,22 +1896,22 @@ export default function DraftReview({ topic, homework, onTopicChange, onHomework
   return (
     <div className="mb-4">
       <div className="mb-2">
-        <label className="text-xs text-gray-500 block mb-1">Mavzu</label>
+        <label className="text-xs text-gray-500 block mb-1">Мавзу</label>
         <input
           type="text"
           value={topic}
           onChange={(e) => onTopicChange(e.target.value)}
-          placeholder="Dars mavzusi"
+          placeholder="Дарс мавзуси"
           className="w-full border rounded px-3 py-2 text-sm bg-white"
         />
       </div>
       <div>
-        <label className="text-xs text-gray-500 block mb-1">Uy vazifasi</label>
+        <label className="text-xs text-gray-500 block mb-1">Уй вазифаси</label>
         <input
           type="text"
           value={homework}
           onChange={(e) => onHomeworkChange(e.target.value)}
-          placeholder="Uy vazifasi"
+          placeholder="Уй вазифаси"
           className="w-full border rounded px-3 py-2 text-sm bg-white"
         />
       </div>
@@ -1964,7 +1966,7 @@ export default function Today() {
 
   useEffect(() => {
     if (!data?.lesson || saved) { hideMainButton(); return; }
-    setMainButton("Saqlash", handleSave);
+    setMainButton("Сақлаш", handleSave);
   }, [data, saved]);
 
   const handleChange = (updated: StudentData) => {
@@ -1995,7 +1997,7 @@ export default function Today() {
   };
 
   if (!data) return <div className="p-4 text-gray-400">Yuklanmoqda...</div>;
-  if (!data.group) return <div className="p-4 text-gray-500">Bugun dars yo'q.</div>;
+  if (!data.group) return <div className="p-4 text-gray-500">Бугун дарс йўқ.</div>;
 
   return (
     <div className="p-4 pb-20 bg-gray-50 min-h-screen">
@@ -2003,7 +2005,7 @@ export default function Today() {
       <p className="text-xs text-gray-400 mb-4">{data.lesson?.date}</p>
       {saved && (
         <div className="bg-green-100 text-green-700 rounded-lg p-3 text-sm mb-4">
-          ✅ Saqlandi. O'quvchilarga xabar yuborilmoqda.
+          ✅ Сақланди. Ўқувчиларга хабар юборилмоқда.
         </div>
       )}
       <DraftReview
@@ -2087,12 +2089,12 @@ export default function VoiceStatus({ lessonId, token, onDraftReady, apiBase }: 
   if (status === "ready") return null;
   if (status === "timeout") return (
     <div className="text-xs text-orange-500 mb-3">
-      ⚠️ AI ishlamadi — qo'lda kiriting
+      ⚠️ AI ишламади — қўлда киритинг
     </div>
   );
   return (
     <div className="flex items-center gap-2 text-xs text-blue-500 mb-3">
-      <span className="animate-spin">⏳</span> AI qoralama tayyorlanmoqda...
+      <span className="animate-spin">⏳</span> AI қоралама тайёрланмоқда...
     </div>
   );
 }
@@ -2249,7 +2251,7 @@ export default function Yesterday() {
 
   useEffect(() => {
     if (!data?.lesson || saved) { hideMainButton(); return; }
-    setMainButton("Saqlash (jim)", handleSave);
+    setMainButton("Сақлаш (жим)", handleSave);
   }, [data, saved]);
 
   const handleSave = async () => {
@@ -2268,15 +2270,15 @@ export default function Yesterday() {
   };
 
   if (!data) return <div className="p-4 text-gray-400">Yuklanmoqda...</div>;
-  if (!data.group) return <div className="p-4 text-gray-500">Kecha dars bo'lmagan.</div>;
+  if (!data.group) return <div className="p-4 text-gray-500">Кеча дарс бўлмаган.</div>;
 
   return (
     <div className="p-4 pb-20 bg-gray-50 min-h-screen">
-      <h1 className="font-semibold text-lg mb-1">Kecha — {data.group.name}</h1>
-      <p className="text-xs text-orange-500 mb-4">⚠️ Tuzatish xabar yuborMaYdi</p>
+      <h1 className="font-semibold text-lg mb-1">Кеча — {data.group.name}</h1>
+      <p className="text-xs text-orange-500 mb-4">⚠️ Тузатиш хабар юборМаЙди</p>
       {saved && (
         <div className="bg-green-100 text-green-700 rounded-lg p-3 text-sm mb-4">
-          ✅ Tuzatishlar saqlandi.
+          ✅ Тузатишлар сақланди.
         </div>
       )}
       {students.map((s) => (
@@ -2306,7 +2308,7 @@ return (
           onClick={() => setScreen(s)}
           className={`flex-1 py-3 text-sm font-medium ${screen===s?"border-b-2 border-blue-500 text-blue-600":"text-gray-500"}`}
         >
-          {s === "today" ? "Bugun" : "Kecha"}
+          {s === "today" ? "Бугун" : "Кеча"}
         </button>
       ))}
     </div>
