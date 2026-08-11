@@ -1,7 +1,7 @@
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-WEEKDAY_UZ = {1: "Dush", 2: "Sesh", 3: "Chor", 4: "Pay", 5: "Jum", 6: "Shan"}
+WEEKDAY_UZ = {1: "Душ", 2: "Сеш", 3: "Чор", 4: "Пай", 5: "Жум", 6: "Шан"}
 
 
 def group_keyboard(groups) -> InlineKeyboardMarkup:
@@ -14,7 +14,7 @@ def group_keyboard(groups) -> InlineKeyboardMarkup:
 
 def confirm_keyboard(lesson_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="✅ Saqlash", callback_data=f"confirm:{lesson_id}")
-    b.button(text="✏️ Tahrirlash", callback_data=f"edit:{lesson_id}")
+    b.button(text="✅ Сақлаш", callback_data=f"confirm:{lesson_id}")
+    b.button(text="✏️ Таҳрирлаш", callback_data=f"edit:{lesson_id}")
     b.adjust(2)
     return b.as_markup()

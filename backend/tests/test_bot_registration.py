@@ -130,6 +130,56 @@ def test_webhook_rejects_wrong_header():
     assert response.status_code == 403
 
 
+class _NoopBotSession:
+    """Stands in for aiogram's real (aiohttp) Bot session. Every outbound
+    Telegram API call -- send_message, edit_message_text, etc. -- funnels
+    through `Bot.__call__` -> `self.session(bot, method, timeout=...)`, so
+    replacing the session here is the single choke point that keeps this
+    test off the real network while leaving the webhook route, Update
+    parsing, dp.feed_update, and router filter matching all real."""
+
+    async def __call__(self, bot, method, timeout=None):
+        return None
+
+
+async def test_webhook_success_dispatches_start_through_real_router(isolated_db, monkeypatch):
+    """End-to-end happy path for the wiring this task produces: a real
+    POST with a real Telegram Update body for "/start", through the real
+    route (both secret checks passing), Update.model_validate, and
+    dp.feed_update -- landing in the real router's CommandStart() filter
+    and running the real cmd_start handler. Asserts on the resulting FSM
+    state via the same dp.fsm.get_context() aiogram itself uses, not a
+    self-asserting mock."""
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module.bot, "session", _NoopBotSession())
+
+    telegram_id = 999777
+    update_payload = {
+        "update_id": 1,
+        "message": {
+            "message_id": 1,
+            "date": 1_700_000_000,
+            "chat": {"id": telegram_id, "type": "private"},
+            "from": {"id": telegram_id, "is_bot": False, "first_name": "Test"},
+            "text": "/start",
+        },
+    }
+
+    client = TestClient(main_module.app)
+    response = client.post(
+        f"/webhook/telegram/{settings.webhook_secret}",
+        json=update_payload,
+        headers={"X-Telegram-Bot-Api-Secret-Token": settings.webhook_secret},
+    )
+    assert response.status_code == 200
+
+    state = main_module.dp.fsm.get_context(
+        bot=main_module.bot, chat_id=telegram_id, user_id=telegram_id
+    )
+    assert await state.get_state() == Reg.name.state
+
+
 # ---------------------------------------------------------------------------
 # lifespan resilience (correction #2)
 # ---------------------------------------------------------------------------
