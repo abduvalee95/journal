@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toStudentRows, type LessonData } from "./types";
+import { sameAttendance, toStudentRows, type LessonData, type StudentData } from "./types";
 
 const BASE: LessonData = {
   group: { id: 1, name: "Beginners A" },
@@ -63,5 +63,37 @@ describe("toStudentRows", () => {
 
   it("returns an empty list for a group with no students", () => {
     expect(toStudentRows({ ...BASE, students: [] })).toEqual([]);
+  });
+});
+
+describe("sameAttendance", () => {
+  const ROW: StudentData = {
+    id: 1,
+    full_name: "Aziza Karimova",
+    status: "present",
+    grade: 4,
+    note_public: "Яхши",
+    att_id: 55,
+  };
+
+  it("is true for an untouched row", () => {
+    expect(sameAttendance(ROW, { ...ROW })).toBe(true);
+  });
+
+  it("notices a status change", () => {
+    expect(sameAttendance(ROW, { ...ROW, status: "late" })).toBe(false);
+  });
+
+  it("notices a grade change, including clearing it", () => {
+    expect(sameAttendance(ROW, { ...ROW, grade: 5 })).toBe(false);
+    expect(sameAttendance(ROW, { ...ROW, grade: null })).toBe(false);
+  });
+
+  it("notices a note change", () => {
+    expect(sameAttendance(ROW, { ...ROW, note_public: "" })).toBe(false);
+  });
+
+  it("ignores fields that are not recorded attendance", () => {
+    expect(sameAttendance(ROW, { ...ROW, full_name: "Renamed", att_id: 99 })).toBe(true);
   });
 });

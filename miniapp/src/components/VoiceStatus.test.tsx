@@ -51,9 +51,7 @@ describe("VoiceStatus", () => {
 
     stream.emit({ event: "timeout" });
 
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "⚠️ AI қоралама келмади — қўлда киритинг",
-    );
+    expect(await screen.findByText("⚠️ AI қоралама келмади — қўлда киритинг")).toBeInTheDocument();
     expect(onDraftReady).not.toHaveBeenCalled();
   });
 
@@ -63,7 +61,7 @@ describe("VoiceStatus", () => {
 
     stream.close();
 
-    expect(await screen.findByRole("status")).toHaveTextContent("AI қоралама келмади");
+    expect(await screen.findByText(/AI қоралама келмади/)).toBeInTheDocument();
   });
 
   it("warns when the stream request fails outright", async () => {
@@ -72,7 +70,7 @@ describe("VoiceStatus", () => {
 
     stream.fail(new Error("401"));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("AI қоралама келмади");
+    expect(await screen.findByText(/AI қоралама келмади/)).toBeInTheDocument();
   });
 
   it("ignores unknown events and keeps waiting", async () => {

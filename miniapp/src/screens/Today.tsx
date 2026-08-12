@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../lib/api";
 import { formatDateUz } from "../lib/date";
@@ -20,38 +20,39 @@ export default function Today() {
     queryFn: () => apiFetch<LessonData>("/api/today"),
   });
 
-  const [students, setStudents] = useState<StudentData[]>([]);
-  const [topic, setTopic] = useState("");
-  const [homework, setHomework] = useState("");
+  // Server state is never copied into React state. The form holds only what the
+  // teacher has overridden, layered on top of the query data, so there is no
+  // effect to run and therefore no render where the lesson header is on screen
+  // but the roster underneath it is still empty.
+  const [edits, setEdits] = useState<ReadonlyMap<number, StudentData>>(new Map());
+  const [topicEdit, setTopicEdit] = useState<string | null>(null);
+  const [homeworkEdit, setHomeworkEdit] = useState<string | null>(null);
+
   const [savedNow, setSavedNow] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Derived, not stored: mirroring lesson.status into state via an effect would
-  // leave one commit where the data has arrived but `saved` is still false, and
-  // the MainButton effect below would flash "Сақлаш" on an already-saved lesson.
-  const saved = savedNow || data?.lesson?.status === "saved";
-
-  // Whether the teacher has touched the form yet. The SSE auto-fill below only
-  // overwrites a pristine form, so manual edits are never clobbered by a draft
-  // that lands mid-typing.
-  const pristine = useRef(true);
-  // The lesson whose AI draft we are waiting on, or null. Set once, when the
-  // first load shows a voice note has arrived but no attendance exists yet;
-  // never cleared here, because VoiceStatus renders nothing on its own once
-  // the draft lands and must keep showing its warning if the draft never does.
   const [watchedLessonId, setWatchedLessonId] = useState<number | null>(null);
+
   // Guards against a second MainButton tap while the first save is in flight:
   // showProgress() spins the button but does not stop it firing again, and a
   // double POST /confirm would be wasted work.
   const saving = useRef(false);
 
-  useEffect(() => {
-    if (!data) return;
-    setTopic(data.lesson?.topic ?? "");
-    setHomework(data.lesson?.homework ?? "");
-    setStudents(toStudentRows(data));
-    pristine.current = true;
-  }, [data]);
+  // Derived rather than mirrored: an effect copying lesson.status into state
+  // would leave one commit where the data has arrived but `saved` is still
+  // false, and the MainButton effect would flash "Сақлаш" on a saved lesson.
+  const saved = savedNow || data?.lesson?.status === "saved";
+
+  const serverRows = useMemo(() => (data ? toStudentRows(data) : []), [data]);
+  const students = useMemo(
+    () => serverRows.map((row) => edits.get(row.id) ?? row),
+    [serverRows, edits],
+  );
+  const topic = topicEdit ?? data?.lesson?.topic ?? "";
+  const homework = homeworkEdit ?? data?.lesson?.homework ?? "";
+
+  // Nothing has been typed yet, so an incoming AI draft is free to replace what
+  // is on screen.
+  const pristine = edits.size === 0 && topicEdit === null && homeworkEdit === null;
 
   useEffect(() => {
     const lesson = data?.lesson;
@@ -66,7 +67,7 @@ export default function Today() {
   // Only a pristine form is replaced. If the teacher has already started typing
   // when the draft lands, their input wins and the draft is simply ignored.
   const handleDraftReady = () => {
-    if (pristine.current) void refetch();
+    if (pristine) void refetch();
   };
 
   // The MainButton handler is registered once per screen but must read the
@@ -122,18 +123,7 @@ export default function Today() {
   }, [data?.lesson, saved]);
 
   const handleStudentChange = (updated: StudentData) => {
-    pristine.current = false;
-    setStudents((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-  };
-
-  const handleTopicChange = (v: string) => {
-    pristine.current = false;
-    setTopic(v);
-  };
-
-  const handleHomeworkChange = (v: string) => {
-    pristine.current = false;
-    setHomework(v);
+    setEdits((prev) => new Map(prev).set(updated.id, updated));
   };
 
   if (isPending) return <div className="p-4 text-gray-400">Юкланмоқда...</div>;
@@ -168,8 +158,8 @@ export default function Today() {
         topic={topic}
         homework={homework}
         disabled={saved}
-        onTopicChange={handleTopicChange}
-        onHomeworkChange={handleHomeworkChange}
+        onTopicChange={setTopicEdit}
+        onHomeworkChange={setHomeworkEdit}
       />
 
       {students.length === 0 ? (

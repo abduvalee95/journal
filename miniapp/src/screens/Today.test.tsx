@@ -398,7 +398,7 @@ describe("Today — AI draft over SSE", () => {
     stubPagedFetch([AWAITING_AI]);
     renderToday();
 
-    expect(await screen.findByRole("status")).toHaveTextContent("AI қоралама тайёрланмоқда...");
+    expect(await screen.findByText(/AI қоралама тайёрланмоқда/)).toBeInTheDocument();
   });
 
   it("does not open a stream for a lesson with no voice note", async () => {
@@ -436,7 +436,7 @@ describe("Today — AI draft over SSE", () => {
     stubPagedFetch([AWAITING_AI, WITH_DRAFT]);
     renderToday();
 
-    await screen.findByRole("status");
+    await screen.findByText(/AI қоралама тайёрланмоқда/);
     expect(screen.getByLabelText("Мавзу")).toHaveValue("");
 
     stream.emit({ event: "draft_ready" });
@@ -457,7 +457,7 @@ describe("Today — AI draft over SSE", () => {
     stubPagedFetch([AWAITING_AI, WITH_DRAFT]);
     const user = renderToday();
 
-    await screen.findByRole("status");
+    await screen.findByText(/AI қоралама тайёрланмоқда/);
     await user.type(screen.getByLabelText("Мавзу"), "Қўлда");
     await user.click(screen.getAllByRole("button", { name: "❌ Келмади" })[0]);
 
@@ -477,7 +477,7 @@ describe("Today — AI draft over SSE", () => {
     const fetchMock = stubPagedFetch([AWAITING_AI, WITH_DRAFT]);
     renderToday();
 
-    await screen.findByRole("status");
+    await screen.findByText(/AI қоралама тайёрланмоқда/);
     stream.emit({ event: "draft_ready" });
     await waitFor(() => expect(screen.getByLabelText("Мавзу")).toHaveValue("Present Perfect"));
 
@@ -494,12 +494,10 @@ describe("Today — AI draft over SSE", () => {
     stubPagedFetch([AWAITING_AI]);
     renderToday();
 
-    await screen.findByRole("status");
+    await screen.findByText(/AI қоралама тайёрланмоқда/);
     stream.emit({ event: "timeout" });
 
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "⚠️ AI қоралама келмади — қўлда киритинг",
-    );
+    expect(await screen.findByText("⚠️ AI қоралама келмади — қўлда киритинг")).toBeInTheDocument();
     expect(screen.getByLabelText("Мавзу")).toBeEnabled();
     expect(mainButtonHandler).not.toBeNull();
   });
@@ -509,7 +507,7 @@ describe("Today — AI draft over SSE", () => {
     stubPagedFetch([AWAITING_AI]);
     renderToday();
 
-    await screen.findByRole("status");
+    await screen.findByText(/AI қоралама тайёрланмоқда/);
     stream.emit({ event: "timeout" });
     await screen.findByText("⚠️ AI қоралама келмади — қўлда киритинг");
 

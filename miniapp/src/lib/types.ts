@@ -35,6 +35,13 @@ export interface StudentData {
   att_id: number | null;
 }
 
+/** Whether two rows for the same student carry the same recorded attendance.
+ * Used by the Yesterday screen to send only the rows the teacher actually
+ * touched, instead of rewriting every student's record on every save. */
+export function sameAttendance(a: StudentData, b: StudentData): boolean {
+  return a.status === b.status && a.grade === b.grade && a.note_public === b.note_public;
+}
+
 export function toStudentRows(data: LessonData): StudentData[] {
   const byStudent = new Map(data.attendance.map((a) => [a.student_id, a]));
   return data.students.map((s) => {
