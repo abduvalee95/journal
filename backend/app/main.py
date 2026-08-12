@@ -8,6 +8,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 from app.config import settings
 from app.bot.handlers import start as start_handler
+from app.bot.handlers import voice as voice_handler
+from app.bot.handlers import confirm as confirm_handler
 from app.api import auth as auth_api
 from app.api import lessons as lessons_api
 from app.services.outbox import run_outbox
@@ -17,6 +19,8 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=settings.bot_token)
 dp = Dispatcher(storage=MemoryStorage())
 dp.include_router(start_handler.router)
+dp.include_router(voice_handler.router)
+dp.include_router(confirm_handler.router)
 
 
 @asynccontextmanager

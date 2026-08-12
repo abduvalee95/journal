@@ -1,13 +1,18 @@
+import asyncio
+import json
 from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_session
 from app.db.models import Group, Lesson, Student, Attendance, Outbox
+from app.db.queries import get_or_create_lesson
 from app.api.deps import require_teacher
 from app.utils.localtime import today, weekday, bishkek_now
 from app.services.report import build_report
+from app.services.events import sse_queues
 
 router = APIRouter()
 
@@ -52,18 +57,6 @@ def _att_out(a: Attendance) -> dict:
     }
 
 
-async def _get_or_create_lesson(session: AsyncSession, group_id: int, date: str) -> Lesson:
-    lesson = await session.scalar(
-        select(Lesson).where(Lesson.group_id == group_id, Lesson.lesson_date == date)
-    )
-    if not lesson:
-        lesson = Lesson(group_id=group_id, lesson_date=date, created_at=bishkek_now().isoformat())
-        session.add(lesson)
-        await session.commit()
-        await session.refresh(lesson)
-    return lesson
-
-
 async def _students_and_attendance(session: AsyncSession, group_id: int, lesson_id: int):
     students = (await session.execute(
         select(Student).where(Student.group_id == group_id, Student.is_active == 1)
@@ -86,7 +79,7 @@ async def get_today(
     )
     if not group:
         return {"group": None, "lesson": None, "students": [], "attendance": []}
-    lesson = await _get_or_create_lesson(session, group.id, today())
+    lesson = await get_or_create_lesson(session, group.id, today())
     students, attendance = await _students_and_attendance(session, group.id, lesson.id)
     return {
         "group": {"id": group.id, "name": group.name},
@@ -197,3 +190,42 @@ async def confirm_lesson(
         ))
     await session.commit()
     return {"ok": True}
+
+
+# ── SSE: voice draft ready ───────────────────────────────────
+
+STREAM_TIMEOUT_SECONDS = 90
+
+
+async def _event_stream(lesson_id: int, timeout: float = STREAM_TIMEOUT_SECONDS):
+    """Yield SSE frames for one lesson until its draft lands or we time out.
+
+    Registers a queue in `sse_queues` for the voice pipeline to push into, and
+    always unregisters it on the way out so a disconnected browser doesn't leak
+    a queue the pipeline would then fill forever.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+    sse_queues[lesson_id] = queue
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(queue.get(), timeout=timeout)
+            except asyncio.TimeoutError:
+                yield 'data: {"event": "timeout"}\n\n'
+                return
+            yield f"data: {json.dumps(data)}\n\n"
+            if data.get("event") == "draft_ready":
+                return
+    finally:
+        # Only drop our own queue: a later listener for the same lesson has
+        # already replaced this entry and still needs it.
+        if sse_queues.get(lesson_id) is queue:
+            del sse_queues[lesson_id]
+
+
+@router.get("/api/lessons/{lesson_id}/stream")
+async def stream_lesson(
+    lesson_id: int,
+    _: int = Depends(require_teacher),
+):
+    return StreamingResponse(_event_stream(lesson_id), media_type="text/event-stream")
