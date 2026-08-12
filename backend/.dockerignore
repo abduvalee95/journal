@@ -1,0 +1,20 @@
+# Secrets must never enter an image layer -- compose injects them as real
+# environment variables at run time via `env_file`, and pydantic-settings reads
+# those in preference to any file.
+.env
+*.env
+!.env.example
+
+# Host virtualenv: macOS/arm wheels that would not run in the image anyway,
+# and hundreds of MB of build context.
+.venv/
+venv/
+
+# The live SQLite database. It belongs to the ./data bind mount, not the image.
+data/
+*.db
+*.db-journal
+
+__pycache__/
+*.py[cod]
+.pytest_cache/

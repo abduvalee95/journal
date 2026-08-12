@@ -1,0 +1,20 @@
+# Replace with the real API hostname before deploying; Caddy uses it both for
+# routing and for the Let's Encrypt certificate it requests on first start.
+api.domain.uz {
+	reverse_proxy app:8000
+
+	# No CORS headers here, deliberately. The application already sets them
+	# (CORSMiddleware in backend/app/main.py, origins driven by MINIAPP_URL).
+	# Adding a second set here would send two Access-Control-Allow-Origin
+	# headers on every API response, which browsers reject outright -- the
+	# Mini App would fail every request with a CORS error. Preflight is
+	# likewise left to FastAPI rather than short-circuited with `respond 204`,
+	# so the allowed methods and headers have exactly one definition.
+
+	encode gzip
+
+	log {
+		output stdout
+		format console
+	}
+}

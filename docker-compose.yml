@@ -1,0 +1,55 @@
+services:
+  app:
+    build: ./backend
+    restart: unless-stopped
+    # Values land as real environment variables, which is why .env is kept out
+    # of the image entirely (see backend/.dockerignore).
+    env_file: .env
+    volumes:
+      # The SQLite file lives on the host so it survives image rebuilds. The
+      # directory must be owned by uid 10001 to match the container user.
+      - ./data:/app/data
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import httpx,sys; sys.exit(0 if httpx.get('http://127.0.0.1:8000/api/health').status_code == 200 else 1)
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      # Without a cap the JSON log of a long-lived container grows until it
+      # fills the VPS disk.
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys. Losing this volume means
+      # re-issuing from Let's Encrypt, which is rate limited.
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:
