@@ -44,6 +44,11 @@ def _lesson_out(lesson: Lesson) -> dict:
         "homework": lesson.homework,
         "summary_public": lesson.summary_public,
         "status": lesson.status,
+        # Whether a voice note has been received for this lesson. The Mini App
+        # uses it to decide whether an AI draft is actually on its way before
+        # showing a spinner. A boolean rather than audio_file_id itself: the
+        # client has no use for a Telegram file id.
+        "has_audio": lesson.audio_file_id is not None,
     }
 
 

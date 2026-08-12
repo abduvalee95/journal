@@ -10,6 +10,7 @@ const BASE: LessonData = {
     homework: null,
     summary_public: null,
     status: "draft",
+    has_audio: false,
   },
   students: [
     { id: 1, full_name: "Aziza Karimova" },

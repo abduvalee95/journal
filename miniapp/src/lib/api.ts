@@ -43,12 +43,17 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return (await res.json()) as T;
 }
 
-/** For the Task 13 SSE stream. `EventSource` cannot send an Authorization
- * header and the endpoint is Bearer-protected, so that stream must be read with
- * `fetch` + a ReadableStream reader -- putting the JWT in the query string
- * instead would leak it into logs and Referer headers. */
+/** Used by the SSE reader in sse.ts, which needs to build the request itself.
+ * `EventSource` cannot send an Authorization header and the stream endpoint is
+ * Bearer-protected, so it is read with `fetch` + a ReadableStream reader --
+ * putting the JWT in the query string instead would leak it into server access
+ * logs, browser history and Referer headers. */
 export function getToken(): string | null {
   return _token;
+}
+
+export function apiUrl(path: string): string {
+  return `${BASE}${path}`;
 }
 
 /** Test seam: drop the in-memory token. */

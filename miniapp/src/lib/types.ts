@@ -10,6 +10,9 @@ export interface LessonData {
     homework: string | null;
     summary_public: string | null;
     status: string;
+    /** A voice note has been received for this lesson, so an AI draft is on
+     * its way (or already landed). Drives the VoiceStatus spinner. */
+    has_audio: boolean;
   } | null;
   students: { id: number; full_name: string }[];
   attendance: {

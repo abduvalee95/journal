@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Today from "./Today";
 import type { LessonData } from "../lib/types";
 import * as telegram from "../lib/telegram";
+import * as sse from "../lib/sse";
 
 const BASE: LessonData = {
   group: { id: 1, name: "Beginners A" },
@@ -15,6 +16,7 @@ const BASE: LessonData = {
     homework: "Workbook 42-43",
     summary_public: null,
     status: "draft",
+    has_audio: false,
   },
   students: [
     { id: 11, full_name: "Aziza Karimova" },
@@ -345,5 +347,175 @@ describe("Today — an already-saved lesson", () => {
     expect(telegram.setMainButton).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Мавзу")).toBeDisabled();
     expect(screen.getAllByRole("button", { name: "❌ Келмади" })[0]).toBeDisabled();
+  });
+});
+
+describe("Today — AI draft over SSE", () => {
+  /** A lesson the bot has received a voice note for, with no draft written yet. */
+  const AWAITING_AI: LessonData = {
+    ...BASE,
+    lesson: { ...BASE.lesson!, topic: null, homework: null, has_audio: true },
+    attendance: [],
+  };
+
+  /** The same lesson once the pipeline has written its draft. */
+  const WITH_DRAFT: LessonData = {
+    ...AWAITING_AI,
+    lesson: { ...AWAITING_AI.lesson!, topic: "Present Perfect", homework: "Workbook 42-43" },
+    attendance: [{ id: 91, student_id: 11, status: "late", grade: 4, note_public: "Кечикди" }],
+  };
+
+  function controllableStream() {
+    let emit: (e: sse.LessonEvent) => void = () => {};
+    let close: () => void = () => {};
+    const spy = vi.spyOn(sse, "streamLessonEvents").mockImplementation((_id, onEvent) => {
+      emit = onEvent;
+      return new Promise<void>((resolve) => {
+        close = resolve;
+      });
+    });
+    return { spy, emit: (e: sse.LessonEvent) => emit(e), close: () => close() };
+  }
+
+  /** GET /api/today returns each entry of `pages` in turn, so a refetch can
+   * observe the draft the first load did not have. */
+  function stubPagedFetch(pages: LessonData[]) {
+    let call = 0;
+    const fn = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/api/today")) {
+        const page = pages[Math.min(call, pages.length - 1)];
+        call += 1;
+        return { ok: true, status: 200, json: async () => page } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) } as Response;
+    });
+    vi.stubGlobal("fetch", fn);
+    return fn;
+  }
+
+  it("shows the spinner while an AI draft is on its way", async () => {
+    controllableStream();
+    stubPagedFetch([AWAITING_AI]);
+    renderToday();
+
+    expect(await screen.findByRole("status")).toHaveTextContent("AI қоралама тайёрланмоқда...");
+  });
+
+  it("does not open a stream for a lesson with no voice note", async () => {
+    const stream = controllableStream();
+    stubPagedFetch([{ ...BASE, attendance: [] }]);
+    renderToday();
+
+    await screen.findByText("Beginners A");
+    expect(stream.spy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("does not open a stream when the draft already landed before the app opened", async () => {
+    const stream = controllableStream();
+    stubPagedFetch([WITH_DRAFT]);
+    renderToday();
+
+    await screen.findByText("Beginners A");
+    expect(stream.spy).not.toHaveBeenCalled();
+  });
+
+  it("does not open a stream for a lesson that is already saved", async () => {
+    const stream = controllableStream();
+    stubPagedFetch([
+      { ...AWAITING_AI, lesson: { ...AWAITING_AI.lesson!, status: "saved" } },
+    ]);
+    renderToday();
+
+    await screen.findByText("✅ Сақланди. Ўқувчиларга хабар юборилмоқда.");
+    expect(stream.spy).not.toHaveBeenCalled();
+  });
+
+  it("refetches and fills the form when the draft is ready", async () => {
+    const stream = controllableStream();
+    stubPagedFetch([AWAITING_AI, WITH_DRAFT]);
+    renderToday();
+
+    await screen.findByRole("status");
+    expect(screen.getByLabelText("Мавзу")).toHaveValue("");
+
+    stream.emit({ event: "draft_ready" });
+
+    await waitFor(() => expect(screen.getByLabelText("Мавзу")).toHaveValue("Present Perfect"));
+    expect(screen.getByLabelText("Уй вазифаси")).toHaveValue("Workbook 42-43");
+    const azizaAtt = screen.getByRole("group", { name: "Aziza Karimova — давомат" });
+    expect(within(azizaAtt).getByRole("button", { name: "🕐 Кеч" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByLabelText("Aziza Karimova — изоҳ")).toHaveValue("Кечикди");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("keeps the teacher's edits and drops the draft when the form is not pristine", async () => {
+    const stream = controllableStream();
+    stubPagedFetch([AWAITING_AI, WITH_DRAFT]);
+    const user = renderToday();
+
+    await screen.findByRole("status");
+    await user.type(screen.getByLabelText("Мавзу"), "Қўлда");
+    await user.click(screen.getAllByRole("button", { name: "❌ Келмади" })[0]);
+
+    stream.emit({ event: "draft_ready" });
+
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Мавзу")).toHaveValue("Қўлда");
+    const azizaAtt = screen.getByRole("group", { name: "Aziza Karimova — давомат" });
+    expect(within(azizaAtt).getByRole("button", { name: "❌ Келмади" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("saves the auto-filled draft as-is when the teacher just taps save", async () => {
+    const stream = controllableStream();
+    const fetchMock = stubPagedFetch([AWAITING_AI, WITH_DRAFT]);
+    renderToday();
+
+    await screen.findByRole("status");
+    stream.emit({ event: "draft_ready" });
+    await waitFor(() => expect(screen.getByLabelText("Мавзу")).toHaveValue("Present Perfect"));
+
+    mainButtonHandler!();
+    await screen.findByText("✅ Сақланди. Ўқувчиларга хабар юборилмоқда.");
+
+    const body = JSON.parse(writeCalls(fetchMock)[0].body);
+    expect(body.topic).toBe("Present Perfect");
+    expect(body.items[0]).toMatchObject({ student_id: 11, status: "late", grade: 4 });
+  });
+
+  it("warns and leaves the form editable when no draft arrives", async () => {
+    const stream = controllableStream();
+    stubPagedFetch([AWAITING_AI]);
+    renderToday();
+
+    await screen.findByRole("status");
+    stream.emit({ event: "timeout" });
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "⚠️ AI қоралама келмади — қўлда киритинг",
+    );
+    expect(screen.getByLabelText("Мавзу")).toBeEnabled();
+    expect(mainButtonHandler).not.toBeNull();
+  });
+
+  it("hides the warning once the lesson is saved by hand", async () => {
+    const stream = controllableStream();
+    stubPagedFetch([AWAITING_AI]);
+    renderToday();
+
+    await screen.findByRole("status");
+    stream.emit({ event: "timeout" });
+    await screen.findByText("⚠️ AI қоралама келмади — қўлда киритинг");
+
+    mainButtonHandler!();
+    await screen.findByText("✅ Сақланди. Ўқувчиларга хабар юборилмоқда.");
+
+    expect(screen.queryByText("⚠️ AI қоралама келмади — қўлда киритинг")).not.toBeInTheDocument();
   });
 });

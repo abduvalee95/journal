@@ -12,9 +12,10 @@ import {
 } from "../lib/telegram";
 import StudentRow from "../components/StudentRow";
 import DraftReview from "../components/DraftReview";
+import VoiceStatus from "../components/VoiceStatus";
 
 export default function Today() {
-  const { data, isPending, isError } = useQuery({
+  const { data, isPending, isError, refetch } = useQuery({
     queryKey: ["today"],
     queryFn: () => apiFetch<LessonData>("/api/today"),
   });
@@ -30,10 +31,15 @@ export default function Today() {
   // the MainButton effect below would flash "Сақлаш" on an already-saved lesson.
   const saved = savedNow || data?.lesson?.status === "saved";
 
-  // Whether the teacher has touched the form yet. Task 13's SSE auto-fill only
+  // Whether the teacher has touched the form yet. The SSE auto-fill below only
   // overwrites a pristine form, so manual edits are never clobbered by a draft
   // that lands mid-typing.
   const pristine = useRef(true);
+  // The lesson whose AI draft we are waiting on, or null. Set once, when the
+  // first load shows a voice note has arrived but no attendance exists yet;
+  // never cleared here, because VoiceStatus renders nothing on its own once
+  // the draft lands and must keep showing its warning if the draft never does.
+  const [watchedLessonId, setWatchedLessonId] = useState<number | null>(null);
   // Guards against a second MainButton tap while the first save is in flight:
   // showProgress() spins the button but does not stop it firing again, and a
   // double POST /confirm would be wasted work.
@@ -46,6 +52,22 @@ export default function Today() {
     setStudents(toStudentRows(data));
     pristine.current = true;
   }, [data]);
+
+  useEffect(() => {
+    const lesson = data?.lesson;
+    // has_audio means the bot stored a voice note for this lesson, so a draft
+    // really is being produced -- without it the spinner would appear on every
+    // empty lesson the teacher opens for plain manual entry and then "fail".
+    if (!lesson || lesson.status !== "draft" || !lesson.has_audio) return;
+    if (data.attendance.length > 0) return;
+    setWatchedLessonId(lesson.id);
+  }, [data]);
+
+  // Only a pristine form is replaced. If the teacher has already started typing
+  // when the draft lands, their input wins and the draft is simply ignored.
+  const handleDraftReady = () => {
+    if (pristine.current) void refetch();
+  };
 
   // The MainButton handler is registered once per screen but must read the
   // *current* form state when tapped. Telegram keeps the exact function it was
@@ -136,6 +158,10 @@ export default function Today() {
         <div role="alert" className="mb-4 rounded-lg bg-red-100 p-3 text-sm text-red-700">
           {saveError}
         </div>
+      )}
+
+      {watchedLessonId !== null && !saved && (
+        <VoiceStatus lessonId={watchedLessonId} onDraftReady={handleDraftReady} />
       )}
 
       <DraftReview

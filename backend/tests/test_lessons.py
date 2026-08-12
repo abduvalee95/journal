@@ -127,6 +127,7 @@ async def test_today_with_active_group_creates_lesson_and_returns_roster(client,
     assert body["lesson"]["date"] == FIXED_DATE
     assert body["lesson"]["status"] == "draft"
     assert body["lesson"]["topic"] is None
+    assert body["lesson"]["has_audio"] is False
     assert body["students"] == [{"id": student.id, "full_name": "Ali Valiyev"}]
     assert body["attendance"] == []
 
@@ -167,6 +168,26 @@ async def test_today_with_no_active_group_returns_empty_shape(client, db, monkey
     async with db() as s:
         lessons = (await s.execute(select(Lesson))).scalars().all()
     assert lessons == []
+
+
+async def test_today_reports_has_audio_once_a_voice_note_arrives(client, db, monkeypatch):
+    """The Mini App only shows its "AI draft on the way" spinner when a voice
+    note actually exists, so has_audio must track lesson.audio_file_id."""
+    monkeypatch.setattr("app.api.lessons.weekday", lambda: FIXED_WEEKDAY)
+    monkeypatch.setattr("app.api.lessons.today", lambda: FIXED_DATE)
+
+    group = await _seed_group(db)
+    assert client.get("/api/today", headers=AUTH_HEADERS).json()["lesson"]["has_audio"] is False
+
+    async with db() as s:
+        lesson = await s.scalar(select(Lesson).where(Lesson.group_id == group.id))
+        lesson.audio_file_id = "voice-file-1"
+        await s.commit()
+
+    body = client.get("/api/today", headers=AUTH_HEADERS).json()
+    assert body["lesson"]["has_audio"] is True
+    # the raw Telegram file id is never handed to the client
+    assert "audio_file_id" not in body["lesson"]
 
 
 def test_today_requires_auth(client, db):
