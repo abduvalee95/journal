@@ -22,5 +22,8 @@ backend/data/
 node_modules/
 miniapp/dist/
 
+# Claude Code — per-machine permission grants
+.claude/settings.local.json
+
 # OS
 .DS_Store
