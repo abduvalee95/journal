@@ -10,7 +10,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
-from jose import jwt
+from app.api.auth import issue_token
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
@@ -28,8 +28,9 @@ FIXED_WEEKDAY = 1
 
 
 def _make_token(sub) -> str:
-    payload = {"sub": str(sub), "exp": int(time.time()) + 1800}
-    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+    """Mint a session token the same way the app does, so these tests break if
+    the token's shape (audience, subject check) ever stops matching."""
+    return issue_token(sub)
 
 
 AUTH_HEADERS = {"Authorization": f"Bearer {_make_token(settings.teacher_telegram_id)}"}

@@ -12,7 +12,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
-from jose import jwt
+from app.api.auth import issue_token
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from aiogram.exceptions import TelegramForbiddenError
@@ -27,8 +27,9 @@ from app.services.report import build_report
 
 
 def _make_token(sub) -> str:
-    payload = {"sub": str(sub), "exp": int(time.time()) + 1800}
-    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+    """Mint a session token the same way the app does, so these tests break if
+    the token's shape (audience, subject check) ever stops matching."""
+    return issue_token(sub)
 
 
 AUTH_HEADERS = {"Authorization": f"Bearer {_make_token(settings.teacher_telegram_id)}"}
@@ -89,10 +90,12 @@ async def _seed_student(db, group_id, *, full_name="Ali Valiyev", telegram_id=10
         return st
 
 
-async def _seed_lesson(db, group_id, *, lesson_date="2026-08-10", status="draft", **kw) -> Lesson:
+async def _seed_lesson(db, group_id, *, lesson_date="2026-08-10", status="draft",
+                       summary_reviewed=1, **kw) -> Lesson:
     async with db() as s:
         lesson = Lesson(
             group_id=group_id, lesson_date=lesson_date, status=status,
+            summary_reviewed=summary_reviewed,
             created_at="2026-08-10T09:00:00+06:00", **kw,
         )
         s.add(lesson)
@@ -193,10 +196,11 @@ async def test_confirm_is_idempotent(client, db):
     assert len(rows_after_second) == 1  # no duplicate outbox row
 
 
-def test_confirm_unknown_lesson_returns_ok_without_error(client, db):
+def test_confirm_unknown_lesson_returns_404(client, db):
+    """Idempotency is about a *known* lesson already being confirmed. Returning
+    200 for an id that does not exist masks a client bug instead."""
     r = client.post("/api/lessons/99999/confirm", headers=AUTH_HEADERS)
-    assert r.status_code == 200
-    assert r.json() == {"ok": True}
+    assert r.status_code == 404
 
 
 def test_confirm_requires_auth(client, db):
@@ -337,10 +341,13 @@ async def test_drain_once_only_touches_pending_rows(drain_db):
     group = await _seed_group(drain_db)
     lesson = await _seed_lesson(drain_db, group.id)
     student = await _seed_student(drain_db, group.id, telegram_id=5005)
+    other_student = await _seed_student(drain_db, group.id, telegram_id=5006)
     already_sent = await _seed_outbox(
         drain_db, student.id, lesson.id, text="old", status="sent", sent_at="2026-08-10T09:00:00+06:00",
     )
-    already_failed = await _seed_outbox(drain_db, student.id, lesson.id, text="old2", status="failed")
+    # A different student: UNIQUE(lesson_id, student_id) now allows only one
+    # report per student per lesson.
+    already_failed = await _seed_outbox(drain_db, other_student.id, lesson.id, text="old2", status="failed")
 
     bot = FakeBot(responses=[])
     await _drain_once(bot)
