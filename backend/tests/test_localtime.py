@@ -1,6 +1,6 @@
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Asia/Bishkek")
 

@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from app.config import settings
-from app.services.llm import extract_lesson, _SCHEMA, _SYSTEM
+from app.services.llm import _SCHEMA, _SYSTEM, extract_lesson
 
 
 @pytest.mark.asyncio

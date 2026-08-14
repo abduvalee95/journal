@@ -21,13 +21,13 @@ import pytest
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.config import settings
-from app.db.models import Base, Group, Student, Lesson, Attendance, AiJob
 import app.bot.handlers.voice as voice
-from app.bot.handlers.confirm import cb_confirm, cb_edit
 from app.api.lessons import _event_stream, stream_lesson
+from app.bot.handlers.confirm import cb_confirm, cb_edit
+from app.config import settings
+from app.db.models import AiJob, Attendance, Base, Group, Lesson, Student
 from app.services.events import sse_queues
 
 # 2026-08-10 is a Monday (isoweekday 1), matching the seeded group below.

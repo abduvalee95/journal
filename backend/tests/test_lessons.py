@@ -6,18 +6,17 @@ not available in this environment, so these tests drive the endpoints
 through real HTTP (TestClient) against a real, isolated SQLite database
 (created fresh per test), asserting on actual DB rows rather than mocks.
 """
-import time
 
 import pytest
 from fastapi.testclient import TestClient
-from app.api.auth import issue_token
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.main import app
+from app.api.auth import issue_token
 from app.config import settings
-from app.db.models import Base, Group, Student, Lesson, Attendance
+from app.db.models import Attendance, Base, Group, Lesson, Student
 from app.db.session import get_session
+from app.main import app
 
 # A fixed "today" used by every test that needs a deterministic weekday --
 # 2026-08-10 is a Monday (isoweekday 1). Tests patch app.api.lessons.today /

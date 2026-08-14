@@ -8,19 +8,21 @@ database, asserting on actual DB rows and real rendered report text -- and
 they exercise the worker's drain pass (`_drain_once`) directly against a fake
 bot object, never sleeping 30 seconds to test the loop.
 """
-import time
+
+import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
+from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from fastapi.testclient import TestClient
-from app.api.auth import issue_token
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from aiogram.exceptions import TelegramForbiddenError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.main import app
+from app.api.auth import issue_token
 from app.config import settings
-from app.db.models import Base, Group, Student, Lesson, Attendance, Outbox
+from app.db.models import Attendance, Base, Group, Lesson, Outbox, Student
 from app.db.session import get_session
+from app.main import app
 from app.services import outbox as outbox_module
 from app.services.outbox import _drain_once
 from app.services.report import build_report
@@ -356,3 +358,127 @@ async def test_drain_once_only_touches_pending_rows(drain_db):
     async with drain_db() as s:
         assert (await s.get(Outbox, already_sent.id)).status == "sent"
         assert (await s.get(Outbox, already_failed.id)).status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Delivery durability and failure handling (docs/audit-2026-08-14.md H2, M10)
+# ---------------------------------------------------------------------------
+
+async def test_flood_control_does_not_burn_one_of_the_three_attempts(drain_db, monkeypatch):
+    """TelegramRetryAfter is Telegram telling us to slow down, not a delivery
+    failure. Counting it meant three flood waits in a row -- plausible for a
+    15-student batch sent with no pacing -- permanently marked a student's
+    report failed and they silently never received it."""
+    monkeypatch.setattr(outbox_module.asyncio, "sleep", AsyncMock())
+
+    group = await _seed_group(drain_db)
+    lesson = await _seed_lesson(drain_db, group.id)
+    student = await _seed_student(drain_db, group.id, telegram_id=5101)
+    row = await _seed_outbox(drain_db, student.id, lesson.id, text="hi")
+
+    bot = FakeBot(responses=[TelegramRetryAfter(
+        method=None, message="Flood control exceeded", retry_after=3,
+    )])
+    await _drain_once(bot)
+
+    async with drain_db() as s:
+        stored = await s.get(Outbox, row.id)
+    assert stored.status == "pending"
+    assert stored.attempts == 0
+    assert "flood control" in stored.last_error
+
+
+async def test_a_missing_student_row_fails_immediately(drain_db):
+    """session.get(Student, ...) returning None used to raise AttributeError,
+    which burned all three attempts before the row was marked failed."""
+    group = await _seed_group(drain_db)
+    lesson = await _seed_lesson(drain_db, group.id)
+    row = await _seed_outbox(drain_db, 999_999, lesson.id, text="orphan")
+
+    bot = FakeBot(responses=[])
+    await _drain_once(bot)
+
+    async with drain_db() as s:
+        stored = await s.get(Outbox, row.id)
+    assert stored.status == "failed"
+    assert stored.attempts == 0
+    assert bot.calls == []
+
+
+async def test_each_row_is_committed_before_the_next_is_sent(drain_db):
+    """The pass used to commit once at the end, so a crash or a shutdown
+    mid-drain lost the record of every send that had already succeeded and the
+    next start re-sent them all."""
+    group = await _seed_group(drain_db)
+    lesson = await _seed_lesson(drain_db, group.id)
+    first = await _seed_student(drain_db, group.id, telegram_id=5201)
+    second = await _seed_student(drain_db, group.id, telegram_id=5202)
+    row1 = await _seed_outbox(drain_db, first.id, lesson.id, text="one")
+    row2 = await _seed_outbox(drain_db, second.id, lesson.id, text="two")
+
+    class CrashingBot(FakeBot):
+        async def send_message(self, chat_id, text, parse_mode=None):
+            if text == "two":
+                raise KeyboardInterrupt("process killed mid-drain")
+            return await super().send_message(chat_id, text, parse_mode)
+
+    bot = CrashingBot(responses=[None])
+    with pytest.raises(KeyboardInterrupt):
+        await _drain_once(bot)
+
+    async with drain_db() as s:
+        assert (await s.get(Outbox, row1.id)).status == "sent"
+        assert (await s.get(Outbox, row2.id)).status == "pending"
+
+
+async def test_cancellation_mid_send_still_commits_what_is_known(drain_db):
+    """asyncio.CancelledError is a BaseException, so `except Exception` never
+    covered the shutdown path -- main.py cancels this task on shutdown."""
+    group = await _seed_group(drain_db)
+    lesson = await _seed_lesson(drain_db, group.id)
+    first = await _seed_student(drain_db, group.id, telegram_id=5301)
+    second = await _seed_student(drain_db, group.id, telegram_id=5302)
+    row1 = await _seed_outbox(drain_db, first.id, lesson.id, text="one")
+    row2 = await _seed_outbox(drain_db, second.id, lesson.id, text="two")
+
+    class CancellingBot(FakeBot):
+        async def send_message(self, chat_id, text, parse_mode=None):
+            if text == "two":
+                raise asyncio.CancelledError()
+            return await super().send_message(chat_id, text, parse_mode)
+
+    bot = CancellingBot(responses=[None])
+    with pytest.raises(asyncio.CancelledError):
+        await _drain_once(bot)
+
+    async with drain_db() as s:
+        assert (await s.get(Outbox, row1.id)).status == "sent"
+        assert (await s.get(Outbox, row2.id)).status == "pending"
+
+
+async def test_teacher_is_told_once_a_day_about_undelivered_reports(drain_db, monkeypatch):
+    """Spec section 8. Without it a student who blocked the bot fails
+    permanently and nothing in the teacher's workflow ever surfaces it."""
+    monkeypatch.setattr(outbox_module, "_last_failure_summary_date", None)
+
+    group = await _seed_group(drain_db)
+    lesson = await _seed_lesson(drain_db, group.id)
+    student = await _seed_student(drain_db, group.id, telegram_id=5401)
+    await _seed_outbox(drain_db, student.id, lesson.id, text="x", status="failed")
+
+    bot = FakeBot(responses=[None])
+    await outbox_module._report_failures_daily(bot)
+    assert bot.calls, "teacher was never told"
+    assert "1" in bot.calls[0][1]
+
+    # Once a day, not once every 30 seconds.
+    bot2 = FakeBot(responses=[None])
+    await outbox_module._report_failures_daily(bot2)
+    assert bot2.calls == []
+
+
+async def test_no_daily_summary_when_nothing_failed(drain_db, monkeypatch):
+    monkeypatch.setattr(outbox_module, "_last_failure_summary_date", None)
+    bot = FakeBot(responses=[])
+    await outbox_module._report_failures_daily(bot)
+    assert bot.calls == []

@@ -18,21 +18,19 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import app.bot.handlers.start as start_module
+from app.bot.handlers.start import Reg, cmd_start, got_group, got_name
+from app.bot.keyboards import group_keyboard
 from app.config import settings
 from app.db.models import Base, Group, Student
 from app.db.seed import GROUPS
-from app.bot.keyboards import group_keyboard
-import app.bot.handlers.start as start_module
-from app.bot.handlers.start import Reg, cmd_start, got_name, got_group
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -130,14 +128,14 @@ def test_webhook_secret_is_not_in_the_url():
 
 
 def test_webhook_rejects_missing_header():
-    from app.main import app, WEBHOOK_PATH
+    from app.main import WEBHOOK_PATH, app
     client = TestClient(app)
     response = client.post(WEBHOOK_PATH, json={})
     assert response.status_code == 403
 
 
 def test_webhook_rejects_wrong_header():
-    from app.main import app, WEBHOOK_PATH
+    from app.main import WEBHOOK_PATH, app
     client = TestClient(app)
     response = client.post(
         WEBHOOK_PATH,
@@ -150,7 +148,7 @@ def test_webhook_rejects_wrong_header():
 def test_webhook_swallows_malformed_payload_instead_of_500ing():
     """Telegram redelivers on 5xx, so a payload that cannot be parsed must not
     raise -- otherwise one poison update loops forever."""
-    from app.main import app, WEBHOOK_PATH
+    from app.main import WEBHOOK_PATH, app
     client = TestClient(app)
     response = client.post(
         WEBHOOK_PATH,
@@ -171,7 +169,7 @@ class _NoopBotSession:
     test off the real network while leaving the webhook route, Update
     parsing, dp.feed_update, and router filter matching all real."""
 
-    async def __call__(self, bot, method, timeout=None):
+    async def __call__(self, bot, method, timeout=None):  # noqa: ASYNC109 -- signature is aiogram's, not ours
         return None
 
 
