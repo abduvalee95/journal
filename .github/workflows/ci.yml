@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Non-secret test values. Nothing in this job talks to Telegram,
+      # ElevenLabs or an LLM; tests/conftest.py pins whatever is left.
+      BOT_TOKEN: "123456789:TEST-not-a-real-telegram-bot-token"
+      TEACHER_TELEGRAM_ID: "424242"
+      JWT_SECRET: "ci-jwt-secret-at-least-16-chars"
+      WEBHOOK_SECRET: "ci-webhook-secret-32-chars-long"
+      BASE_URL: "https://api.ci.invalid"
+      MINIAPP_URL: "https://miniapp.ci.invalid"
+      DATABASE_URL: "sqlite+aiosqlite:///./data/ci.db"
+      BOT_MODE: "polling"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"      # matches the Dockerfile
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      # mypy is configured in pyproject.toml but is not a gate yet: the models
+      # still use SQLAlchemy's legacy Column() style, so every attribute reads
+      # as Column[str] rather than str. Migrating them to Mapped[] is what
+      # makes it meaningful; a continue-on-error step would just be theatre.
+
+      - name: Migration matches the models
+        run: |
+          mkdir -p data
+          alembic upgrade head
+          alembic check
+
+      - name: Tests
+        run: pytest -q --cov=app --cov-report=term-missing --cov-fail-under=80
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: miniapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - run: npm ci                   # ci, not install: respects the lockfile
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build            # a broken build must fail the PR
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          load: true
+          tags: journal-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Container starts and answers /api/health
+        run: |
+          docker run -d --name app -p 8000:8000 \
+            -e BOT_TOKEN=123456789:x \
+            -e TEACHER_TELEGRAM_ID=1 \
+            -e JWT_SECRET=ci-jwt-secret-at-least-16-chars \
+            -e WEBHOOK_SECRET=ci-webhook-secret-32-chars-long \
+            -e BASE_URL=https://api.ci.invalid \
+            -e MINIAPP_URL=https://miniapp.ci.invalid \
+            -e BOT_MODE=polling \
+            journal-backend:ci
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:8000/api/health && exit 0
+            sleep 1
+          done
+          docker logs app
+          exit 1
