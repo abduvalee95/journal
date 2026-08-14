@@ -1,4 +1,18 @@
-FROM python:3.12-slim
+# Pinned to a digest, not a floating tag: `python:3.12-slim` a month from now
+# is a different image, and nothing else in this build records which one was
+# tested. Dependabot keeps the digest current (see .github/dependabot.yml).
+FROM python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65 AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /build
+COPY requirements.txt .
+# Installed into a prefix so only the packages themselves cross into the final
+# image -- the pip cache and any build toolchain stay behind.
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+
+FROM python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65
 
 # Unbuffered so container logs appear as they happen rather than in blocks;
 # no .pyc files since the layer is read-only in practice.
@@ -7,9 +21,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=builder /install /usr/local
 
+# .dockerignore keeps tests/, requirements-dev.txt, .env and the live database
+# out of the image. alembic/ is deliberately included: deploy runs
+# `alembic upgrade head` inside the container.
 COPY . .
 
 # Run as a non-root user. The uid is fixed so the ./data bind mount can be

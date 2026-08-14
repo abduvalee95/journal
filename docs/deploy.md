@@ -14,6 +14,13 @@ these are the steps a person runs against them.
 | SQLite database | VPS, `./data/journal.db` | bind mount, survives rebuilds |
 | Mini App (static) | Vercel | built from `miniapp/` |
 
+**The backend does not run on Vercel.** It used to carry a `vercel.json`, and
+deploying it looked like it worked: the API answered, and no student ever
+received a report. A serverless instance is frozen the moment it returns a
+response, so the outbox loop never drains, the voice pipeline never finishes,
+the in-process SSE queue never reaches the listener, and SQLite has nowhere
+durable to live. Vercel hosts the Mini App only.
+
 The bot, the HTTP API and the outbox loop are one process. That is why the
 Dockerfile pins `--workers 1`: a second worker would run a second outbox loop
 and every student would receive their report twice.
@@ -66,6 +73,12 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"   # JWT_SECRET
 match the Vercel origin from step 5 — it is the allowed CORS origin, so a
 wrong value makes every Mini App request fail in the browser.
 
+Leave `BOT_MODE=webhook` in production. `polling` is for local development
+without a public HTTPS hostname. The app refuses to start if `BASE_URL`,
+`MINIAPP_URL` or `WEBHOOK_SECRET` is missing — that is deliberate: it used to
+boot with them empty and register its webhook at an unroutable path, so the
+bot went silently dead with nothing in the logs.
+
 Replace `api.domain.uz` in the `Caddyfile` with the real hostname.
 
 The container runs as uid 10001, so give it the database directory:
@@ -88,8 +101,16 @@ The app registers its own Telegram webhook on startup from `BASE_URL` and
 
 ```bash
 curl "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
-curl https://api.<your-domain>/api/health     # {"status":"ok"}
+curl https://api.<your-domain>/api/health     # {"status":"ok","database":"ok"}
 ```
+
+The webhook is registered at `/webhook/telegram`, with the shared secret in the
+`X-Telegram-Bot-Api-Secret-Token` header. It used to be a path segment, which
+meant Caddy's access log wrote the secret to disk on every update.
+
+`/api/health` reaches the database before answering, so it returns 503 when the
+process is up but SQLite is not — which is what UptimeRobot needs in order to
+be worth having.
 
 If `getWebhookInfo` shows no URL, check `docker compose logs app` — the
 lifespan logs the failure and continues rather than crashing.
@@ -162,8 +183,13 @@ In order, checking the effect of each before moving on:
 6. Teacher opens the **Кеча** tab, changes a grade, taps **Сақлаш (жим)** —
    the grade changes and **no** new message is sent.
 
-Step 6 is the one worth being deliberate about: it is the only check that the
-correction path stays silent.
+Step 5 now includes reviewing **Умумий хулоса**: it is the block of text every
+student receives, the AI writes it, and `POST /confirm` returns 409 until the
+teacher has either edited it or accepted it. If saving is refused, that is why.
+
+Step 6 is the one worth being deliberate about: it is the only manual check
+that the correction path stays silent. `test_patch_attendance_does_not_queue_any_report`
+covers it automatically as well.
 
 ## Troubleshooting
 
@@ -182,4 +208,35 @@ restart the app container to re-register.
 
 **Students get duplicate reports.** Something started a second app process —
 check that `--workers 1` is still in the Dockerfile `CMD` and that only one
-`app` container is running.
+`app` container is running. The database also carries
+`UNIQUE(lesson_id, student_id)` on `outbox`, so a duplicate row is refused
+outright; duplicates surviving that mean two processes, not two requests.
+
+**Saving is refused with 409 `summary_not_reviewed`.** Working as intended: the
+lesson summary is still exactly as the AI wrote it. Edit it in the Mini App, or
+accept it as written.
+
+## Rotating secrets
+
+`JWT_SECRET`: change it in `.env` and `docker compose up -d`. Every open Mini
+App session is invalidated; the teacher reopens the app.
+
+`WEBHOOK_SECRET`: change it in `.env` and restart. The app re-registers the
+webhook with the new secret on startup — until it does, Telegram's calls are
+rejected with 403, so do not rotate it mid-lesson.
+
+`BOT_TOKEN`: revoke in BotFather, update `.env`, restart. Note that this
+changes the key used to validate Mini App `initData`, so open sessions break
+too.
+
+## Verifying a backup
+
+A backup nothing has ever restored is a hope, not a backup. Monthly:
+
+```bash
+rclone copy r2:journal-backups/j-<date>.db /tmp/
+sqlite3 /tmp/j-<date>.db "select count(*) from students; select count(*) from lessons;"
+```
+
+Both counts should match production. `sqlite3 /tmp/j-<date>.db "pragma integrity_check;"`
+should print `ok`.
