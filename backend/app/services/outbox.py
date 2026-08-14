@@ -43,6 +43,17 @@ SEND_SPACING_SECONDS = 0.05
 
 _last_failure_summary_date: str | None = None
 
+# Set by whoever queues work, so the worker drains immediately instead of
+# waiting out the retry interval. Only correct because the API and the worker
+# share one process -- which the Dockerfile's `--workers 1` enforces, for the
+# separate reason that two workers would send every report twice.
+_wake = asyncio.Event()
+
+
+def wake_outbox() -> None:
+    """Ask the worker to drain now rather than on its next tick."""
+    _wake.set()
+
 
 async def _drain_once(bot: Bot) -> None:
     async with AsyncSessionLocal() as session:
@@ -125,4 +136,13 @@ async def run_outbox(bot: Bot):
             raise
         except Exception:
             logger.exception("Outbox drain pass failed; will retry next cycle")
-        await asyncio.sleep(DRAIN_INTERVAL_SECONDS)
+
+        # Wait for either new work or the retry tick. On a fixed sleep alone,
+        # a report queued one second after a drain waited the full interval:
+        # measured at 26s from the teacher tapping Сақлаш to the first send,
+        # of which 0.8s was actual work.
+        try:
+            await asyncio.wait_for(_wake.wait(), timeout=DRAIN_INTERVAL_SECONDS)
+        except TimeoutError:
+            pass
+        _wake.clear()

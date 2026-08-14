@@ -482,3 +482,45 @@ async def test_no_daily_summary_when_nothing_failed(drain_db, monkeypatch):
     bot = FakeBot(responses=[])
     await outbox_module._report_failures_daily(bot)
     assert bot.calls == []
+
+
+async def test_confirm_wakes_the_worker_instead_of_waiting_for_the_next_tick(client, db, monkeypatch):
+    """Measured before this: 26.1s from the teacher tapping Сақлаш to the first
+    send, of which 0.8s was work -- the rest was the fixed retry interval."""
+    woken = []
+    monkeypatch.setattr("app.api.lessons.wake_outbox", lambda: woken.append(True))
+
+    group = await _seed_group(db)
+    lesson = await _seed_lesson(db, group.id)
+    student = await _seed_student(db, group.id, telegram_id=6001)
+    await _seed_attendance(db, lesson.id, student.id, status="present", grade=5)
+
+    assert client.post(f"/api/lessons/{lesson.id}/confirm", headers=AUTH_HEADERS).status_code == 200
+    assert woken == [True]
+
+
+async def test_the_worker_drains_again_as_soon_as_it_is_woken(monkeypatch):
+    """The retry interval stays 30s, but new work must not wait for it."""
+    drains = 0
+
+    async def counting_drain(_bot):
+        nonlocal drains
+        drains += 1
+
+    monkeypatch.setattr(outbox_module, "_drain_once", counting_drain)
+    monkeypatch.setattr(outbox_module, "_report_failures_daily", AsyncMock())
+    outbox_module._wake.clear()
+
+    task = asyncio.create_task(outbox_module.run_outbox(FakeBot(responses=[])))
+    await asyncio.sleep(0.05)
+    assert drains == 1, "should drain once on entry"
+
+    outbox_module.wake_outbox()
+    await asyncio.sleep(0.05)
+    assert drains == 2, "a wake must not wait out DRAIN_INTERVAL_SECONDS"
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass

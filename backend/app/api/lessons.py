@@ -15,6 +15,7 @@ from app.db.models import Attendance, Group, Lesson, Outbox, Student
 from app.db.queries import get_or_create_lesson
 from app.db.session import get_session
 from app.services.events import sse_queues
+from app.services.outbox import wake_outbox
 from app.services.report import build_report
 from app.utils.localtime import bishkek_now, today, weekday
 
@@ -334,6 +335,9 @@ async def confirm_lesson(
             created_at=bishkek_now().isoformat(),
         ))
     await session.commit()
+    # Don't make the class wait out the retry interval for a report that is
+    # already written and ready to go.
+    wake_outbox()
     return {"ok": True}
 
 

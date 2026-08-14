@@ -176,7 +176,9 @@ In order, checking the effect of each before moving on:
 1. Student sends `/start` to the bot and registers.
 2. Teacher opens the Mini App — the student appears in today's roster.
 3. Teacher fills attendance by hand and taps **Сақлаш** — that student
-   receives their report within ~30s (the outbox polls on a 30s loop).
+   receives their report within a second or two. Confirm wakes the outbox
+   worker directly; the 30s loop is only the retry fallback for a send that
+   failed.
 4. Teacher sends a voice note — the Mini App shows the spinner, then
    auto-fills within ~10-20s.
 5. Teacher taps **Сақлаш** — every student receives a report.
