@@ -1,4 +1,3 @@
-from typing import Optional
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -10,7 +9,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 async def require_teacher(
-    creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> int:
     """Guard every /api/* route: a valid session token belonging to the teacher.
 
@@ -28,7 +27,7 @@ async def require_teacher(
     try:
         user_id = int(sub)
     except (TypeError, ValueError):
-        raise HTTPException(401, "Invalid token")
+        raise HTTPException(401, "Invalid token") from None
     if user_id != settings.teacher_telegram_id:
         raise HTTPException(403, "Not authorized")
     return user_id

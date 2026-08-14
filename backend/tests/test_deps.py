@@ -1,8 +1,8 @@
 import time
 
+import jwt
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-from jose import jwt
 
 from app.api.auth import AUDIENCE, issue_token
 from app.api.deps import require_teacher
@@ -68,9 +68,9 @@ def test_token_for_another_user_gets_403():
 
 
 def test_token_without_audience_gets_401():
-    """python-jose accepts a missing `aud` even when an audience is expected,
-    so the claim is required explicitly -- otherwise any token signed with
-    JWT_SECRET for any other purpose would be accepted here."""
+    """A token signed with JWT_SECRET for any other purpose must not be
+    accepted here. python-jose, which this used to use, quietly allowed a
+    missing `aud` even when an audience was expected."""
     r = _get(_make_token(str(settings.teacher_telegram_id), aud=None))
     assert r.status_code == 401
 

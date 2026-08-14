@@ -4,9 +4,9 @@ import json
 import time
 from urllib.parse import parse_qsl
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from app.config import settings
@@ -45,24 +45,21 @@ def decode_token(token: str) -> dict:
     """Decode a session token, or raise 401.
 
     `algorithms` is pinned so `alg: none` and HS/RS confusion are both refused,
-    and `audience` is checked so a token minted from JWT_SECRET for some other
-    purpose cannot be replayed here.
+    and `audience` is required so a token minted from JWT_SECRET for some other
+    purpose cannot be replayed here. PyJWT raises MissingRequiredClaimError
+    when `aud` is absent -- python-jose, which this used to use, quietly
+    accepted that case.
     """
     try:
-        payload = jwt.decode(
+        return jwt.decode(
             token,
             settings.jwt_secret,
             algorithms=["HS256"],
             audience=AUDIENCE,
+            options={"require": ["exp", "sub", "aud"]},
         )
-    except JWTError:
-        raise HTTPException(401, "Invalid token")
-    # python-jose accepts a token that carries no `aud` at all even when an
-    # audience is expected -- it only rejects a *wrong* one. Require it here,
-    # or a token minted from JWT_SECRET for anything else still gets in.
-    if payload.get("aud") != AUDIENCE:
-        raise HTTPException(401, "Invalid token")
-    return payload
+    except jwt.PyJWTError:
+        raise HTTPException(401, "Invalid token") from None
 
 
 def _verify(init_data: str) -> dict:
@@ -76,7 +73,7 @@ def _verify(init_data: str) -> dict:
     try:
         auth_date = int(params.get("auth_date", 0))
     except ValueError:
-        raise HTTPException(401, "Invalid auth_date")
+        raise HTTPException(401, "Invalid auth_date") from None
     if time.time() - auth_date > 300:
         raise HTTPException(401, "auth_date expired")
     return params
@@ -88,7 +85,7 @@ async def auth_telegram(body: InitDataReq):
     try:
         user = json.loads(params.get("user", "{}"))
     except json.JSONDecodeError:
-        raise HTTPException(401, "Invalid user payload")
+        raise HTTPException(401, "Invalid user payload") from None
     if not isinstance(user, dict):
         raise HTTPException(401, "Invalid user payload")
     if user.get("id") != settings.teacher_telegram_id:
@@ -114,7 +111,7 @@ async def refresh_token(
     try:
         user_id = int(sub)
     except (TypeError, ValueError):
-        raise HTTPException(401, "Invalid token")
+        raise HTTPException(401, "Invalid token") from None
     if user_id != settings.teacher_telegram_id:
         raise HTTPException(403, "Not authorized")
     return {"access_token": issue_token(user_id), "expires_in": TOKEN_TTL_SECONDS}
