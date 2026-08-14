@@ -11,6 +11,7 @@ directly:
   - the full three-step /start FSM against a real (isolated) SQLite database,
     including the already-registered short-circuit on a second /start
 """
+import asyncio
 import logging
 from datetime import datetime
 from types import SimpleNamespace
@@ -94,40 +95,72 @@ def test_health_check_ok_without_triggering_lifespan():
     client = TestClient(app)
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "database": "ok"}
+
+
+def test_health_check_reports_503_when_the_database_is_unreachable(monkeypatch):
+    """A process that is up but cannot reach its database is down as far as the
+    teacher is concerned, and UptimeRobot only ever sees this endpoint."""
+    from app import main as main_module
+
+    class _BrokenSession:
+        async def __aenter__(self):
+            raise RuntimeError("unable to open database file")
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(main_module, "AsyncSessionLocal", lambda: _BrokenSession())
+
+    client = TestClient(main_module.app)
+    response = client.get("/api/health")
+    assert response.status_code == 503
+    assert response.json()["database"] == "unreachable"
 
 
 # ---------------------------------------------------------------------------
 # webhook route secret checks
 # ---------------------------------------------------------------------------
 
-def test_webhook_rejects_wrong_path_secret():
-    from app.main import app
-    client = TestClient(app)
-    response = client.post(
-        "/webhook/telegram/wrong-secret",
-        json={},
-        headers={"X-Telegram-Bot-Api-Secret-Token": settings.webhook_secret},
-    )
-    assert response.status_code == 403
+def test_webhook_secret_is_not_in_the_url():
+    """The secret used to be a path segment, which put it into every proxy
+    access log on disk. The route is now fixed and the header carries it."""
+    from app.main import WEBHOOK_PATH
+    assert settings.webhook_secret not in WEBHOOK_PATH
 
 
 def test_webhook_rejects_missing_header():
-    from app.main import app
+    from app.main import app, WEBHOOK_PATH
     client = TestClient(app)
-    response = client.post(f"/webhook/telegram/{settings.webhook_secret}", json={})
+    response = client.post(WEBHOOK_PATH, json={})
     assert response.status_code == 403
 
 
 def test_webhook_rejects_wrong_header():
-    from app.main import app
+    from app.main import app, WEBHOOK_PATH
     client = TestClient(app)
     response = client.post(
-        f"/webhook/telegram/{settings.webhook_secret}",
+        WEBHOOK_PATH,
         json={},
         headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-header-value"},
     )
     assert response.status_code == 403
+
+
+def test_webhook_swallows_malformed_payload_instead_of_500ing():
+    """Telegram redelivers on 5xx, so a payload that cannot be parsed must not
+    raise -- otherwise one poison update loops forever."""
+    from app.main import app, WEBHOOK_PATH
+    client = TestClient(app)
+    response = client.post(
+        WEBHOOK_PATH,
+        content=b"not json at all",
+        headers={
+            "X-Telegram-Bot-Api-Secret-Token": settings.webhook_secret,
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 200
 
 
 class _NoopBotSession:
@@ -168,7 +201,7 @@ async def test_webhook_success_dispatches_start_through_real_router(isolated_db,
 
     client = TestClient(main_module.app)
     response = client.post(
-        f"/webhook/telegram/{settings.webhook_secret}",
+        main_module.WEBHOOK_PATH,
         json=update_payload,
         headers={"X-Telegram-Bot-Api-Secret-Token": settings.webhook_secret},
     )
@@ -189,6 +222,7 @@ def test_lifespan_survives_webhook_registration_failure_and_logs_it(monkeypatch,
     crash startup, and must be visible in the log."""
     from app import main as main_module
 
+    monkeypatch.setattr(main_module.settings, "bot_mode", "webhook")
     monkeypatch.setattr(
         main_module.bot,
         "set_webhook",
@@ -199,6 +233,7 @@ def test_lifespan_survives_webhook_registration_failure_and_logs_it(monkeypatch,
         "delete_webhook",
         AsyncMock(side_effect=RuntimeError("network unreachable")),
     )
+    monkeypatch.setattr(main_module, "run_outbox", AsyncMock())
 
     with caplog.at_level(logging.ERROR, logger="app.main"):
         with TestClient(main_module.app) as client:
@@ -207,6 +242,50 @@ def test_lifespan_survives_webhook_registration_failure_and_logs_it(monkeypatch,
 
     messages = [record.getMessage().lower() for record in caplog.records]
     assert any("webhook" in m for m in messages), f"no webhook failure logged: {messages}"
+
+
+def test_lifespan_registers_webhook_at_the_secretless_path_and_starts_the_outbox(monkeypatch):
+    """The startup path decides whether the bot receives anything at all, so
+    assert on it directly rather than inferring it from downstream behaviour."""
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module.settings, "bot_mode", "webhook")
+    monkeypatch.setattr(main_module.settings, "base_url", "https://api.example.test")
+    set_webhook = AsyncMock()
+    monkeypatch.setattr(main_module.bot, "set_webhook", set_webhook)
+    monkeypatch.setattr(main_module.bot, "delete_webhook", AsyncMock())
+
+    outbox_started = asyncio.Event()
+
+    async def _fake_outbox(_bot):
+        outbox_started.set()
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(main_module, "run_outbox", _fake_outbox)
+
+    with TestClient(main_module.app):
+        pass
+
+    set_webhook.assert_awaited_once()
+    assert set_webhook.await_args.args[0] == "https://api.example.test/webhook/telegram"
+    assert set_webhook.await_args.kwargs["secret_token"] == settings.webhook_secret
+    assert outbox_started.is_set(), "outbox worker was never started"
+
+
+def test_lifespan_in_polling_mode_does_not_register_a_webhook(monkeypatch):
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module.settings, "bot_mode", "polling")
+    set_webhook = AsyncMock()
+    monkeypatch.setattr(main_module.bot, "set_webhook", set_webhook)
+    monkeypatch.setattr(main_module.bot, "delete_webhook", AsyncMock())
+    monkeypatch.setattr(main_module, "run_outbox", AsyncMock())
+    monkeypatch.setattr(main_module.dp, "start_polling", AsyncMock())
+
+    with TestClient(main_module.app):
+        pass
+
+    set_webhook.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
