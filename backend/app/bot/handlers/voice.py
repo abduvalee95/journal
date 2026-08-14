@@ -6,6 +6,8 @@ file id to the lesson and answers, then hands the slow work (two network calls,
 blocked. `_pipeline` opens its own short-lived sessions rather than holding one
 across the API calls.
 """
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
@@ -67,6 +69,35 @@ async def handle_voice(message: Message):
     task.add_done_callback(_background_tasks.discard)
 
 
+@router.message(F.text & ~F.text.startswith("/"))
+async def handle_text_note(message: Message):
+    if message.from_user.id != settings.teacher_telegram_id:
+        return
+
+    async with AsyncSessionLocal() as s:
+        group = await s.scalar(
+            select(Group).where(Group.weekday == weekday(), Group.is_active == 1)
+        )
+        if not group:
+            await message.answer("Бугун дарс гуруҳ топилмади.")
+            return
+        lesson = await get_or_create_lesson(s, group.id, today())
+        await s.commit()
+        students = (await s.execute(
+            select(Student).where(Student.group_id == group.id, Student.is_active == 1)
+        )).scalars().all()
+        student_names = [st.full_name for st in students]
+        student_map = [{"id": st.id, "full_name": st.full_name} for st in students]
+        lesson_id = lesson.id
+
+    await message.answer("⏳ Маълумотlar қайта ишланмоқда...")
+    await _pipeline(
+        message.bot, lesson_id, None,
+        student_names, student_map, message.chat.id,
+        text_note=message.text,
+    )
+
+
 def _clean_grade(value) -> int | None:
     """Keep only a real 1-5 grade.
 
@@ -83,19 +114,22 @@ def _clean_status(value) -> str:
     return value if value in VALID_STATUSES else "present"
 
 
-async def _pipeline(bot, lesson_id, file_id, student_names, student_map, chat_id):
+async def _pipeline(bot, lesson_id, file_id, student_names, student_map, chat_id, text_note=None):
     t0 = time.time()
     async with AsyncSessionLocal() as s:
-        job = AiJob(lesson_id=lesson_id, stage="asr", status="running",
+        job = AiJob(lesson_id=lesson_id, stage="asr" if file_id else "llm", status="running",
                     created_at=bishkek_now().isoformat())
         s.add(job)
         await s.commit()
         job_id = job.id
 
     try:
-        file = await bot.get_file(file_id)
-        raw = await bot.download_file(file.file_path)
-        transcript = await transcribe(raw.read())
+        if file_id:
+            file = await bot.get_file(file_id)
+            raw = await bot.download_file(file.file_path)
+            transcript = await transcribe(raw.read())
+        else:
+            transcript = text_note or ""
 
         async with AsyncSessionLocal() as s:
             lesson = await s.get(Lesson, lesson_id)

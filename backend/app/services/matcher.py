@@ -5,6 +5,8 @@ Used after `extract_lesson()` (llm.py) returns a `per_student` list with
 `match_names` resolves those against the *passed-in* student list only —
 it must never guess across groups by falling back to some global roster.
 """
+from __future__ import annotations
+
 from rapidfuzz import process, fuzz, utils
 
 

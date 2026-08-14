@@ -1,7 +1,7 @@
 import asyncio
 from sqlalchemy import select
-from app.db.session import AsyncSessionLocal
-from app.db.models import Group
+from app.db.session import AsyncSessionLocal, engine
+from app.db.models import Base, Group
 
 GROUPS = [
     {"name": "Beginners A",         "weekday": 1, "start_time": "09:00"},
@@ -13,6 +13,9 @@ GROUPS = [
 ]
 
 async def seed():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
     async with AsyncSessionLocal() as session:
         existing = (await session.execute(select(Group.id).limit(1))).first()
         if existing is not None:

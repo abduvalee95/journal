@@ -4,10 +4,12 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select
+from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.db.models import Student, Group
 from app.bot.keyboards import group_keyboard
 from app.utils.localtime import bishkek_now
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 router = Router()
 
@@ -19,6 +21,13 @@ class Reg(StatesGroup):
 
 @router.message(CommandStart())
 async def cmd_start(msg: Message, state: FSMContext):
+    if msg.from_user and msg.from_user.id == settings.teacher_telegram_id:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📱 Jurnalni ochish", web_app=WebAppInfo(url=settings.miniapp_url))
+        ]])
+        await msg.answer("Assalomu alaykum, Ustoz! Jurnalni ochish uchun quyidagi tugmani bosing:", reply_markup=kb)
+        return
+
     async with AsyncSessionLocal() as s:
         existing = await s.scalar(select(Student).where(Student.telegram_id == msg.from_user.id))
     if existing:
