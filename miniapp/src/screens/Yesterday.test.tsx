@@ -16,6 +16,7 @@ const YESTERDAY: LessonData = {
     homework: "Workbook 40-41",
     summary_public: null,
     status: "saved",
+    summary_reviewed: true,
     has_audio: true,
   },
   students: [
@@ -90,7 +91,10 @@ beforeEach(() => {
 
 describe("Yesterday — loading and empty states", () => {
   it("shows a loading message first", () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
     renderYesterday();
     expect(screen.getByText("Юкланмоқда...")).toBeInTheDocument();
   });
@@ -101,7 +105,7 @@ describe("Yesterday — loading and empty states", () => {
       vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }) as Response),
     );
     renderYesterday();
-    expect(await screen.findByText("Маълумот юкланмади. Қайта очинг.")).toBeInTheDocument();
+    expect(await screen.findByText("Маълумот юкланмади.")).toBeInTheDocument();
   });
 
   it("says there was no lesson when the backend returns nothing", async () => {
@@ -289,8 +293,10 @@ describe("Yesterday — correcting", () => {
     await user.click(screen.getAllByRole("button", { name: "🕐 Кеч" })[0]);
     mainButtonHandler!();
 
+    // Counted, because Promise.all reporting a blanket failure was a lie: the
+    // requests that resolved really had been written.
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Тузатишлар сақланмади. Қайтадан уриниб кўринг.",
+      "1 та тузатиш сақланмади. Қайтадан уриниб кўринг.",
     );
     expect(screen.queryByText("✅ Тузатишлар сақланди.")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "🕐 Кеч" })[0]).toBeEnabled();
@@ -325,8 +331,6 @@ describe("Yesterday — a student with no attendance record", () => {
     mainButtonHandler!();
     await screen.findByText("✅ Тузатишлар сақланди.");
 
-    expect(writeCalls(fetchMock).map((w) => w.url)).toEqual([
-      "http://api.test/api/attendance/91",
-    ]);
+    expect(writeCalls(fetchMock).map((w) => w.url)).toEqual(["http://api.test/api/attendance/91"]);
   });
 });

@@ -9,6 +9,10 @@ export interface LessonData {
     topic: string | null;
     homework: string | null;
     summary_public: string | null;
+    /** False while summary_public is still exactly as the model wrote it.
+     * POST /confirm refuses to build student reports until the teacher has
+     * either edited it or explicitly approved it. */
+    summary_reviewed: boolean;
     status: string;
     /** A voice note has been received for this lesson, so an AI draft is on
      * its way (or already landed). Drives the VoiceStatus spinner. */

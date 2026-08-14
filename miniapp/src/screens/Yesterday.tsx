@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "../lib/api";
+import { apiFetch, SessionExpiredError } from "../lib/api";
 import { formatDateUz, yesterdayIso } from "../lib/date";
 import { sameAttendance, toStudentRows, type LessonData, type StudentData } from "../lib/types";
 import {
@@ -62,9 +62,14 @@ export default function Yesterday() {
     showMainButtonLoading();
     haptic();
     try {
-      await Promise.all(
-        changed.map((s) =>
-          apiFetch(`/api/attendance/${s.att_id}`, {
+      // Sequential, not Promise.all: SQLite has a single writer and each PATCH
+      // commits on its own, so firing fifteen at once invites "database is
+      // locked". And a rejection in the middle of Promise.all used to report
+      // "corrections were not saved" even though the resolved ones had been.
+      const failed: StudentData[] = [];
+      for (const s of changed) {
+        try {
+          await apiFetch(`/api/attendance/${s.att_id}`, {
             method: "PATCH",
             body: JSON.stringify({
               student_id: s.id,
@@ -72,19 +77,33 @@ export default function Yesterday() {
               grade: s.status === "absent" ? null : s.grade,
               note_public: s.note_public.trim() || null,
             }),
-          }),
-        ),
-      );
+          });
+        } catch (err: unknown) {
+          if (err instanceof SessionExpiredError) throw err;
+          failed.push(s);
+        }
+      }
+
       // No /confirm call here, and that is the whole point of this screen:
       // corrections must not queue a second round of student messages.
-      setSaved(true);
-      setEdits(new Map());
-      // Re-read so the rows the diff compares against are the ones now stored,
-      // which both confirms the write landed and empties `changed`.
-      await refetch();
-      hideMainButton();
-    } catch {
-      setSaveError("Тузатишлар сақланмади. Қайтадан уриниб кўринг.");
+      // Keep only the rows that failed, so a retry re-sends exactly those.
+      setEdits(new Map(failed.map((s) => [s.id, s])));
+      if (failed.length > 0) {
+        setSaveError(`${failed.length} та тузатиш сақланмади. Қайтадан уриниб кўринг.`);
+        hideMainButtonLoading();
+      } else {
+        setSaved(true);
+        // Re-read so the rows the diff compares against are the ones now
+        // stored, which both confirms the write landed and empties `changed`.
+        await refetch();
+        hideMainButton();
+      }
+    } catch (err: unknown) {
+      setSaveError(
+        err instanceof SessionExpiredError
+          ? "Сессия тугади. Иловани ёпиб, қайта очинг."
+          : "Тузатишлар сақланмади. Қайтадан уриниб кўринг.",
+      );
       hideMainButtonLoading();
     } finally {
       saving.current = false;
@@ -108,18 +127,33 @@ export default function Yesterday() {
     setEdits((prev) => new Map(prev).set(updated.id, updated));
   };
 
-  if (isPending) return <div className="p-4 text-gray-400">Юкланмоқда...</div>;
-  if (isError) {
-    return <div className="p-4 text-red-500">Маълумот юкланмади. Қайта очинг.</div>;
+  if (isPending) return <div className="p-4 text-tg-hint">Юкланмоқда...</div>;
+  // isError is true even when `data` is present, if a *background* refetch
+  // failed -- replacing a filled-in form with an error screen is how a network
+  // blip destroyed the teacher's corrections.
+  if (isError && !data) {
+    return (
+      <div className="p-4">
+        <p className="mb-3 text-red-500">Маълумот юкланмади.</p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="min-h-11 rounded-lg bg-tg-button px-4 text-tg-buttonText"
+        >
+          Қайта уриниш
+        </button>
+      </div>
+    );
   }
+  if (!data) return <div className="p-4 text-tg-hint">Юкланмоқда...</div>;
   if (!data.group || !data.lesson) {
-    return <div className="p-4 text-gray-500">Кеча дарс бўлмаган.</div>;
+    return <div className="p-4 text-tg-hint">Кеча дарс бўлмаган.</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 pb-20">
+    <div className="min-h-screen bg-tg-secondaryBg p-4 pb-20">
       <h1 className="mb-1 text-lg font-semibold">Кеча — {data.group.name}</h1>
-      <p className="mb-3 text-xs text-gray-400">{formatDateUz(data.lesson.date)}</p>
+      <p className="mb-3 text-xs text-tg-hint">{formatDateUz(data.lesson.date)}</p>
       <p className="mb-4 text-xs text-orange-500">⚠️ Тузатиш ўқувчиларга хабар юбормайди</p>
 
       {saved && (
@@ -143,9 +177,8 @@ export default function Yesterday() {
       ))}
 
       {uncorrectable.length > 0 && (
-        <p className="mt-2 text-xs text-gray-500">
-          {uncorrectable.map((s) => s.full_name).join(", ")} — бу дарсда ёзув йўқ, тузатиб
-          бўлмайди.
+        <p className="mt-2 text-xs text-tg-hint">
+          {uncorrectable.map((s) => s.full_name).join(", ")} — бу дарсда ёзув йўқ, тузатиб бўлмайди.
         </p>
       )}
     </div>

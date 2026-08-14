@@ -16,6 +16,7 @@ const BASE: LessonData = {
     homework: "Workbook 42-43",
     summary_public: null,
     status: "draft",
+    summary_reviewed: true,
     has_audio: false,
   },
   students: [
@@ -93,7 +94,10 @@ beforeEach(() => {
 
 describe("Today — loading and empty states", () => {
   it("shows a loading message before the request resolves", () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
     renderToday();
     expect(screen.getByText("Юкланмоқда...")).toBeInTheDocument();
   });
@@ -104,7 +108,10 @@ describe("Today — loading and empty states", () => {
       vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }) as Response),
     );
     renderToday();
-    expect(await screen.findByText("Маълумот юкланмади. Қайта очинг.")).toBeInTheDocument();
+    expect(await screen.findByText("Маълумот юкланмади.")).toBeInTheDocument();
+    // A retry, rather than telling the teacher to reopen the app -- which is
+    // what actually discarded their work.
+    expect(screen.getByRole("button", { name: "Қайта уриниш" })).toBeInTheDocument();
   });
 
   it("says there is no lesson today when the backend returns no group", async () => {
@@ -144,9 +151,7 @@ describe("Today — rendering the lesson", () => {
   it("pre-fills rows from existing attendance (an AI draft or an earlier save)", async () => {
     stubFetch({
       ...BASE,
-      attendance: [
-        { id: 91, student_id: 11, status: "late", grade: 4, note_public: "Кечикди" },
-      ],
+      attendance: [{ id: 91, student_id: 11, status: "late", grade: 4, note_public: "Кечикди" }],
     });
     renderToday();
 
@@ -273,7 +278,9 @@ describe("Today — saving", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Сақлаб бўлмади. Қайтадан уриниб кўринг.",
     );
-    expect(screen.queryByText("✅ Сақланди. Ўқувчиларга хабар юборилмоқда.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("✅ Сақланди. Ўқувчиларга хабар юборилмоқда."),
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText("Мавзу")).toBeEnabled();
     expect(telegram.hideMainButtonLoading).toHaveBeenCalled();
   });
@@ -422,9 +429,7 @@ describe("Today — AI draft over SSE", () => {
 
   it("does not open a stream for a lesson that is already saved", async () => {
     const stream = controllableStream();
-    stubPagedFetch([
-      { ...AWAITING_AI, lesson: { ...AWAITING_AI.lesson!, status: "saved" } },
-    ]);
+    stubPagedFetch([{ ...AWAITING_AI, lesson: { ...AWAITING_AI.lesson!, status: "saved" } }]);
     renderToday();
 
     await screen.findByText("✅ Сақланди. Ўқувчиларга хабар юборилмоқда.");
@@ -463,7 +468,10 @@ describe("Today — AI draft over SSE", () => {
 
     stream.emit({ event: "draft_ready" });
 
-    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    // The draft is offered, not applied: silently dropping it meant the teacher
+    // never learned a topic, homework and fifteen notes were sitting in the
+    // database.
+    expect(await screen.findByRole("button", { name: "Юклаш" })).toBeInTheDocument();
     expect(screen.getByLabelText("Мавзу")).toHaveValue("Қўлда");
     const azizaAtt = screen.getByRole("group", { name: "Aziza Karimova — давомат" });
     expect(within(azizaAtt).getByRole("button", { name: "❌ Келмади" })).toHaveAttribute(
