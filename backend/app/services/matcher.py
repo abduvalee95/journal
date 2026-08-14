@@ -7,7 +7,7 @@ it must never guess across groups by falling back to some global roster.
 """
 from __future__ import annotations
 
-from rapidfuzz import process, fuzz, utils
+from rapidfuzz import fuzz, process, utils
 
 
 def match_names(

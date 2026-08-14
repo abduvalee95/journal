@@ -5,7 +5,7 @@ single write path (it is the one that fills the outbox), and the teacher
 reaches it from the Mini App. These handlers just acknowledge the tap so the
 button stops spinning.
 """
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
 from app.config import settings

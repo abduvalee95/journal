@@ -1,7 +1,7 @@
 import asyncio
 import json
 from datetime import date as date_cls
-from typing import List, Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -28,8 +28,8 @@ AttendanceStatus = Literal["present", "absent", "late"]
 class AttendanceItem(BaseModel):
     student_id: int
     status: AttendanceStatus
-    grade: Optional[int] = Field(default=None, ge=1, le=5)
-    note_public: Optional[str] = Field(default=None, max_length=settings.max_note_chars)
+    grade: int | None = Field(default=None, ge=1, le=5)
+    note_public: str | None = Field(default=None, max_length=settings.max_note_chars)
 
     @model_validator(mode="after")
     def _absent_has_no_grade(self):
@@ -42,9 +42,9 @@ class AttendanceItem(BaseModel):
 
 
 class AttendanceBatch(BaseModel):
-    items: List[AttendanceItem]
-    topic: Optional[str] = Field(default=None, max_length=200)
-    homework: Optional[str] = Field(default=None, max_length=settings.max_note_chars)
+    items: list[AttendanceItem]
+    topic: str | None = Field(default=None, max_length=200)
+    homework: str | None = Field(default=None, max_length=settings.max_note_chars)
 
 
 class LessonPatch(BaseModel):
@@ -54,9 +54,9 @@ class LessonPatch(BaseModel):
     and was previously unreachable: the AI wrote it, the Mini App never
     displayed it, and no endpoint could change it.
     """
-    topic: Optional[str] = Field(default=None, max_length=200)
-    homework: Optional[str] = Field(default=None, max_length=settings.max_note_chars)
-    summary_public: Optional[str] = Field(default=None, max_length=settings.max_summary_chars)
+    topic: str | None = Field(default=None, max_length=200)
+    homework: str | None = Field(default=None, max_length=settings.max_note_chars)
+    summary_public: str | None = Field(default=None, max_length=settings.max_summary_chars)
 
 # ── Helpers ──────────────────────────────────────────────────
 
@@ -123,14 +123,14 @@ async def get_today(
 @router.get("/api/lessons")
 async def get_lesson_by_date(
     date: str,
-    group_id: Optional[int] = None,
+    group_id: int | None = None,
     _: int = Depends(require_teacher),
     session: AsyncSession = Depends(get_session),
 ):
     try:
         date_cls.fromisoformat(date)
     except ValueError:
-        raise HTTPException(422, "date must be YYYY-MM-DD")
+        raise HTTPException(422, "date must be YYYY-MM-DD") from None
 
     query = select(Lesson).where(Lesson.lesson_date == date)
     if group_id is not None:
@@ -343,7 +343,7 @@ STREAM_TIMEOUT_SECONDS = 90
 HEARTBEAT_SECONDS = 15
 
 
-async def _event_stream(lesson_id: int, timeout: float = STREAM_TIMEOUT_SECONDS):
+async def _event_stream(lesson_id: int, timeout: float = STREAM_TIMEOUT_SECONDS):  # noqa: ASYNC109 -- the caller never passes one; it is a seam so tests need not wait 90s
     """Yield SSE frames for one lesson until its draft lands or we time out.
 
     Registers a queue in `sse_queues` for the voice pipeline to push into, and
@@ -365,7 +365,7 @@ async def _event_stream(lesson_id: int, timeout: float = STREAM_TIMEOUT_SECONDS)
             wait = min(HEARTBEAT_SECONDS, remaining)
             try:
                 data = await asyncio.wait_for(queue.get(), timeout=wait)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Only a heartbeat if there is still time left to wait in;
                 # hitting the deadline is the stream giving up.
                 if wait >= remaining:

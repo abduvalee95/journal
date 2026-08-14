@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
     try:
         await bot.session.close()
     except Exception:
-        pass
+        logger.exception("Failed to close the Telegram bot session")
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)

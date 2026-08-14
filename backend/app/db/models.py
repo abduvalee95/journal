@@ -1,5 +1,4 @@
-from sqlalchemy import (Column, Integer, Text, CheckConstraint,
-                        UniqueConstraint, ForeignKey, Index)
+from sqlalchemy import CheckConstraint, Column, ForeignKey, Index, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
