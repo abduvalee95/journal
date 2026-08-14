@@ -49,7 +49,7 @@ def decode_token(token: str) -> dict:
     purpose cannot be replayed here.
     """
     try:
-        return jwt.decode(
+        payload = jwt.decode(
             token,
             settings.jwt_secret,
             algorithms=["HS256"],
@@ -57,6 +57,12 @@ def decode_token(token: str) -> dict:
         )
     except JWTError:
         raise HTTPException(401, "Invalid token")
+    # python-jose accepts a token that carries no `aud` at all even when an
+    # audience is expected -- it only rejects a *wrong* one. Require it here,
+    # or a token minted from JWT_SECRET for anything else still gets in.
+    if payload.get("aud") != AUDIENCE:
+        raise HTTPException(401, "Invalid token")
+    return payload
 
 
 def _verify(init_data: str) -> dict:
