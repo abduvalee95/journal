@@ -367,3 +367,31 @@ async def test_second_start_from_same_telegram_id_does_not_duplicate(isolated_db
             await s.execute(select(Student).where(Student.telegram_id == telegram_id))
         ).scalars().all()
     assert len(rows) == 1
+
+
+async def test_shutdown_survives_a_background_task_that_already_died(monkeypatch, caplog):
+    """A polling task that died of a network error re-raised out of the
+    lifespan, so uvicorn reported "Application shutdown failed" and the webhook
+    deregistration and session close after it never ran. Found by running the
+    app locally, where polling cannot reach Telegram."""
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module.settings, "bot_mode", "polling")
+    monkeypatch.setattr(main_module.bot, "delete_webhook", AsyncMock())
+    monkeypatch.setattr(main_module, "run_outbox", AsyncMock())
+
+    async def exploding_polling(*_args, **_kwargs):
+        raise RuntimeError("cannot connect to api.telegram.org")
+
+    monkeypatch.setattr(main_module.dp, "start_polling", exploding_polling)
+
+    session_closed = AsyncMock()
+    monkeypatch.setattr(main_module.bot, "session", SimpleNamespace(close=session_closed))
+
+    with caplog.at_level(logging.ERROR, logger="app.main"):
+        with TestClient(main_module.app) as client:
+            assert client.get("/api/health").status_code == 200
+
+    # Shutdown ran to completion rather than aborting at the dead task.
+    session_closed.assert_awaited()
+    assert any("polling" in r.getMessage().lower() for r in caplog.records)

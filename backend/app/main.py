@@ -30,6 +30,16 @@ dp.include_router(confirm_handler.router)
 WEBHOOK_PATH = "/webhook/telegram"
 
 
+async def _reap(task: asyncio.Task, name: str) -> None:
+    """Await a cancelled background task without letting it break shutdown."""
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        logger.exception("%s exited with an error", name)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     polling_task = None
@@ -58,16 +68,13 @@ async def lifespan(app: FastAPI):
     if polling_task:
         polling_task.cancel()
 
-    try:
-        await outbox_task
-    except asyncio.CancelledError:
-        pass
-
+    # A background task that already died of something other than the cancel
+    # re-raises that exception here. Awaiting it bare aborted the rest of
+    # shutdown -- the webhook was never deregistered and the bot session was
+    # never closed -- and uvicorn reported "Application shutdown failed".
+    await _reap(outbox_task, "outbox worker")
     if polling_task:
-        try:
-            await polling_task
-        except asyncio.CancelledError:
-            pass
+        await _reap(polling_task, "Telegram polling")
 
     if use_webhook:
         try:
