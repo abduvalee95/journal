@@ -12,6 +12,13 @@ __pycache__/
 venv/
 .pytest_cache/
 
+# Test artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+miniapp/coverage/
+
 # Data
 data/
 backend/data/
