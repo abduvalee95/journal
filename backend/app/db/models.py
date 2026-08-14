@@ -11,7 +11,17 @@ class Group(Base):
     weekday    = Column(Integer, nullable=False)   # 1=Mon..6=Sat
     start_time = Column(Text)
     is_active  = Column(Integer, nullable=False, default=1)
-    __table_args__ = (UniqueConstraint("weekday", "is_active"),)
+
+# One *active* group per weekday. UNIQUE(weekday, is_active) also allowed only
+# one *inactive* group per weekday, so archiving a second Monday group raised
+# IntegrityError and a seventh group could never be added at all.
+Index(
+    "uq_groups_active_weekday",
+    Group.weekday,
+    unique=True,
+    sqlite_where=Group.is_active == 1,
+    postgresql_where=Group.is_active == 1,
+)
 
 class Student(Base):
     __tablename__ = "students"
@@ -37,6 +47,17 @@ class Lesson(Base):
     status         = Column(Text, nullable=False, default="draft")  # draft|saved
     saved_at       = Column(Text)
     created_at     = Column(Text, nullable=False)
+
+    # summary_public is the one field written straight from model output and
+    # sent to the whole class. 0 means "as the AI wrote it"; the teacher has to
+    # see and accept it before confirm will build any reports from it.
+    summary_reviewed = Column(Integer, nullable=False, default=0)
+
+    # When the teacher last wrote to this lesson by hand. The AI pipeline
+    # refuses to overwrite anything edited after it started, so a draft landing
+    # mid-entry cannot silently replace what the teacher typed.
+    manual_edit_at = Column(Text)
+
     __table_args__ = (UniqueConstraint("group_id", "lesson_date"),)
 
 class Attendance(Base):
@@ -65,6 +86,10 @@ class Outbox(Base):
     last_error = Column(Text)
     created_at = Column(Text, nullable=False)
     sent_at    = Column(Text)
+    # One report per student per lesson. The database is the backstop for
+    # duplicate delivery: application-level checks cannot be trusted across
+    # two concurrent confirms.
+    __table_args__ = (UniqueConstraint("lesson_id", "student_id"),)
 
 Index("idx_outbox_pending", Outbox.status, Outbox.created_at)
 
