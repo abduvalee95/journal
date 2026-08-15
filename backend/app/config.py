@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,6 +44,33 @@ class Settings(BaseSettings):
     max_note_chars: int = 400
 
     model_config = SettingsConfigDict(env_file=[".env", "../.env"], extra="ignore")
+
+    @model_validator(mode="after")
+    def _webhook_mode_needs_a_reachable_url(self):
+        """Refuse to start in a configuration where the bot cannot hear anything.
+
+        Telegram only delivers updates to a public HTTPS URL. Pointed at
+        localhost or plain http, the app registers a webhook that can never
+        fire: /start gets no reply, nothing is written to the database, and
+        nothing in the logs says why. That silence is the exact failure this
+        setting was made explicit to avoid, so it is an error, with the fix in
+        the message.
+        """
+        if self.bot_mode == "webhook":
+            host = self.base_url.strip().lower()
+            unreachable = (
+                not host.startswith("https://")
+                or "localhost" in host
+                or "127.0.0.1" in host
+                or "0.0.0.0" in host  # noqa: S104 -- matching a string, not binding
+            )
+            if unreachable:
+                raise ValueError(
+                    f"BOT_MODE=webhook needs a public HTTPS BASE_URL that Telegram "
+                    f"can reach; got {self.base_url!r}. For local development set "
+                    f"BOT_MODE=polling in your .env."
+                )
+        return self
 
 
 settings = Settings()
