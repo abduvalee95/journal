@@ -9,15 +9,13 @@ function controllableStream() {
   let emit: (e: sse.LessonEvent) => void = () => {};
   let close: () => void = () => {};
   let fail: (err: unknown) => void = () => {};
-  const spy = vi
-    .spyOn(sse, "streamLessonEvents")
-    .mockImplementation((_lessonId, onEvent) => {
-      emit = onEvent;
-      return new Promise<void>((resolve, reject) => {
-        close = resolve;
-        fail = reject;
-      });
+  const spy = vi.spyOn(sse, "streamLessonEvents").mockImplementation((_lessonId, onEvent) => {
+    emit = onEvent;
+    return new Promise<void>((resolve, reject) => {
+      close = resolve;
+      fail = reject;
     });
+  });
   return {
     spy,
     emit: (e: sse.LessonEvent) => emit(e),

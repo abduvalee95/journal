@@ -10,6 +10,7 @@ const BASE: LessonData = {
     homework: null,
     summary_public: null,
     status: "draft",
+    summary_reviewed: true,
     has_audio: false,
   },
   students: [
@@ -22,17 +23,29 @@ const BASE: LessonData = {
 describe("toStudentRows", () => {
   it("defaults every student to present with no grade when nothing is saved", () => {
     expect(toStudentRows(BASE)).toEqual([
-      { id: 1, full_name: "Aziza Karimova", status: "present", grade: null, note_public: "", att_id: null },
-      { id: 2, full_name: "Bobur Toshmatov", status: "present", grade: null, note_public: "", att_id: null },
+      {
+        id: 1,
+        full_name: "Aziza Karimova",
+        status: "present",
+        grade: null,
+        note_public: "",
+        att_id: null,
+      },
+      {
+        id: 2,
+        full_name: "Bobur Toshmatov",
+        status: "present",
+        grade: null,
+        note_public: "",
+        att_id: null,
+      },
     ]);
   });
 
   it("merges existing attendance onto the matching student", () => {
     const rows = toStudentRows({
       ...BASE,
-      attendance: [
-        { id: 55, student_id: 2, status: "late", grade: 3, note_public: "Кечикди" },
-      ],
+      attendance: [{ id: 55, student_id: 2, status: "late", grade: 3, note_public: "Кечикди" }],
     });
     expect(rows[0]).toMatchObject({ id: 1, status: "present", att_id: null });
     expect(rows[1]).toMatchObject({

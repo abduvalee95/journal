@@ -21,13 +21,13 @@ import pytest
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.config import settings
-from app.db.models import Base, Group, Student, Lesson, Attendance, AiJob
 import app.bot.handlers.voice as voice
-from app.bot.handlers.confirm import cb_confirm, cb_edit
 from app.api.lessons import _event_stream, stream_lesson
+from app.bot.handlers.confirm import cb_confirm, cb_edit
+from app.config import settings
+from app.db.models import AiJob, Attendance, Base, Group, Lesson, Student
 from app.services.events import sse_queues
 
 # 2026-08-10 is a Monday (isoweekday 1), matching the seeded group below.
@@ -437,7 +437,10 @@ async def test_pipeline_records_asr_failure(db, monkeypatch):
         stored = await s.get(Lesson, lesson.id)
     assert job.status == "error"
     assert job.stage == "asr"
-    assert "scribe exploded" in job.error
+    # Redacted: exception text can carry the request URL, and a provider
+    # that authenticates by query string would put its key in the backup.
+    assert job.error == "RuntimeError"
+    assert "scribe exploded" not in job.error
     assert job.duration_ms is not None
     assert stored.raw_note is None
     assert bot.send_message.await_args.args[1] == "❌ AI ишламади, қўлда киритинг"
@@ -453,7 +456,7 @@ async def test_pipeline_records_llm_failure_after_transcript_is_saved(db, monkey
         stored = await s.get(Lesson, lesson.id)
     assert job.status == "error"
     assert job.stage == "llm"
-    assert "claude exploded" in job.error
+    assert job.error == "RuntimeError"
     # transcript survives the LLM failure so the teacher's words are not lost
     assert stored.raw_note == "Aziza yaxshi ishladi. Bobur kelmadi."
     assert bot.send_message.await_args.args[1] == "❌ AI ишламади, қўлда киритинг"

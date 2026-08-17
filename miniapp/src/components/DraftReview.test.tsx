@@ -6,16 +6,20 @@ import DraftReview from "./DraftReview";
 function setup(props: Partial<React.ComponentProps<typeof DraftReview>> = {}) {
   const onTopicChange = vi.fn();
   const onHomeworkChange = vi.fn();
+  const onSummaryChange = vi.fn();
   render(
     <DraftReview
       topic=""
       homework=""
+      summary=""
+      summaryReviewed
       onTopicChange={onTopicChange}
       onHomeworkChange={onHomeworkChange}
+      onSummaryChange={onSummaryChange}
       {...props}
     />,
   );
-  return { onTopicChange, onHomeworkChange, user: userEvent.setup() };
+  return { onTopicChange, onHomeworkChange, onSummaryChange, user: userEvent.setup() };
 }
 
 describe("DraftReview", () => {

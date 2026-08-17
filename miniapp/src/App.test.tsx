@@ -10,6 +10,8 @@ const EMPTY: LessonData = { group: null, lesson: null, students: [], attendance:
 
 function stubTelegram() {
   vi.spyOn(telegram, "expandApp").mockImplementation(() => {});
+  vi.spyOn(telegram, "getInitData").mockReturnValue("query_id=test&auth_date=1&hash=abc");
+  vi.spyOn(telegram, "setClosingConfirmation").mockImplementation(() => {});
   vi.spyOn(telegram, "setMainButton").mockImplementation(() => {});
   vi.spyOn(telegram, "hideMainButton").mockImplementation(() => {});
   vi.spyOn(telegram, "showMainButtonLoading").mockImplementation(() => {});
@@ -56,10 +58,32 @@ describe("App — authentication", () => {
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 
-  it("shows a connection message for any other auth failure", async () => {
+  it("distinguishes an expired session from an unreachable server", async () => {
     stubFetch({ authStatus: 401 });
     renderApp();
-    expect(await screen.findByText("Уланиб бўлмади. Телеграм орқали қайта очинг.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Сессия эскирган. Иловани ёпиб, қайта очинг."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a connection message when the server cannot be reached", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    renderApp();
+    expect(
+      await screen.findByText("Серверга уланиб бўлмади. Интернетни текширинг."),
+    ).toBeInTheDocument();
+  });
+
+  it("says so when opened outside Telegram instead of blaming the server", async () => {
+    stubFetch();
+    vi.spyOn(telegram, "getInitData").mockReturnValue("");
+    renderApp();
+    expect(await screen.findByText("Илова Telegram орқали очилиши керак.")).toBeInTheDocument();
   });
 
   it("authenticates once despite StrictMode double-invoking effects", async () => {
@@ -97,6 +121,55 @@ describe("App — navigation", () => {
     expect(screen.queryByText("Кеча дарс бўлмаган.")).not.toBeInTheDocument();
   });
 
+  it("keeps unsaved work when the teacher tabs away and back", async () => {
+    // The tab switch unmounts the outgoing screen and every field lives in
+    // component state, so this used to revert silently to the server's rows --
+    // and the screen looked completely normal afterwards.
+    const lesson: LessonData = {
+      group: { id: 1, name: "Beginners A" },
+      lesson: {
+        id: 1,
+        date: "2026-08-10",
+        topic: null,
+        homework: null,
+        summary_public: null,
+        summary_reviewed: true,
+        status: "draft",
+        has_audio: false,
+      },
+      students: [{ id: 11, full_name: "Aziza Karimova" }],
+      attendance: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith("/api/auth/telegram")) {
+          return { ok: true, status: 200, json: async () => ({ access_token: "jwt" }) } as Response;
+        }
+        if (String(url).includes("/api/today")) {
+          return { ok: true, status: 200, json: async () => lesson } as Response;
+        }
+        return { ok: true, status: 200, json: async () => EMPTY } as Response;
+      }),
+    );
+
+    const user = renderApp();
+    await screen.findByText("Beginners A");
+    await user.type(screen.getByLabelText("Мавзу"), "Present Perfect");
+    await user.click(screen.getByRole("button", { name: "❌ Келмади" }));
+
+    await user.click(screen.getByRole("tab", { name: "Кеча" }));
+    await screen.findByText("Кеча дарс бўлмаган.");
+    await user.click(screen.getByRole("tab", { name: "Бугун" }));
+
+    await screen.findByText("Beginners A");
+    expect(screen.getByLabelText("Мавзу")).toHaveValue("Present Perfect");
+    expect(screen.getByRole("button", { name: "❌ Келмади" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("asks each screen's own endpoint", async () => {
     const fetchMock = stubFetch();
     const user = renderApp();
@@ -105,9 +178,9 @@ describe("App — navigation", () => {
 
     await user.click(screen.getByRole("tab", { name: "Кеча" }));
     await screen.findByText("Кеча дарс бўлмаган.");
-    expect(
-      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/lessons?date=")),
-    ).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/lessons?date="))).toBe(
+      true,
+    );
   });
 
   it("releases the Telegram MainButton when a screen is swapped out", async () => {

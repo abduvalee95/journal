@@ -15,7 +15,10 @@ function sseResponse(chunks: string[], status = 200): Response {
 }
 
 async function collect(chunks: string[]): Promise<LessonEvent[]> {
-  vi.stubGlobal("fetch", vi.fn(async () => sseResponse(chunks)));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => sseResponse(chunks)),
+  );
   const events: LessonEvent[] = [];
   await streamLessonEvents(7, (e) => events.push(e), new AbortController().signal);
   return events;
@@ -30,7 +33,11 @@ describe("streamLessonEvents", () => {
   it("sends the JWT in the Authorization header, never in the URL", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (String(url).endsWith("/api/auth/telegram")) {
-        return { ok: true, status: 200, json: async () => ({ access_token: "jwt-123" }) } as Response;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: "jwt-123" }),
+        } as Response;
       }
       return sseResponse(['data: {"event": "draft_ready"}\n\n']);
     });
@@ -80,7 +87,10 @@ describe("streamLessonEvents", () => {
   });
 
   it("throws ApiError when the endpoint rejects the request", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => sseResponse([], 401)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => sseResponse([], 401)),
+    );
     await expect(
       streamLessonEvents(7, () => {}, new AbortController().signal),
     ).rejects.toMatchObject({ name: "ApiError", status: 401 });

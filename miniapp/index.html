@@ -2,7 +2,11 @@
 <html lang="uz">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- Zoom is deliberately left enabled (WCAG 1.4.4). The usual reason to ban
+         it is iOS auto-zooming into small inputs on focus; every input here is
+         16px, which stops that without taking pinch-zoom away from a teacher
+         reading 12px Cyrillic. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Устоз журнали</title>
     <!-- Telegram requires the live, unversioned SDK from their own origin: it is
          updated in place per client release, so a Subresource Integrity hash would

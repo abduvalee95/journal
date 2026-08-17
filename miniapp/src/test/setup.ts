@@ -8,4 +8,8 @@ import { cleanup } from "@testing-library/react";
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  // lib/draft.ts persists unsaved form state per lesson id, and jsdom keeps one
+  // sessionStorage for the whole file -- without this a draft left by one test
+  // is restored into the next one.
+  sessionStorage.clear();
 });

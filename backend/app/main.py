@@ -1,25 +1,25 @@
 import asyncio
+import hmac
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
+
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
-from app.config import settings
-from app.bot.handlers import start as start_handler
-from app.bot.handlers import voice as voice_handler
-from app.bot.handlers import confirm as confirm_handler
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+
 from app.api import auth as auth_api
 from app.api import lessons as lessons_api
+from app.bot.handlers import confirm as confirm_handler
+from app.bot.handlers import start as start_handler
+from app.bot.handlers import voice as voice_handler
+from app.config import settings
+from app.db.session import AsyncSessionLocal
 from app.services.outbox import run_outbox
 
 logger = logging.getLogger(__name__)
-
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
 
 bot = Bot(token=settings.bot_token)
 dp = Dispatcher(storage=MemoryStorage())
@@ -27,24 +27,26 @@ dp.include_router(start_handler.router)
 dp.include_router(voice_handler.router)
 dp.include_router(confirm_handler.router)
 
+WEBHOOK_PATH = "/webhook/telegram"
 
-def _should_use_webhook() -> bool:
-    url = (settings.base_url or "").strip()
-    return (
-        url.startswith("https://")
-        and "domain.uz" not in url
-        and "localhost" not in url
-        and "127.0.0.1" not in url
-    )
+
+async def _reap(task: asyncio.Task, name: str) -> None:
+    """Await a cancelled background task without letting it break shutdown."""
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        logger.exception("%s exited with an error", name)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     polling_task = None
-    use_webhook = _should_use_webhook()
+    use_webhook = settings.bot_mode == "webhook"
 
     if use_webhook:
-        webhook_url = f"{settings.base_url}/webhook/telegram/{settings.webhook_secret}"
+        webhook_url = f"{settings.base_url}{WEBHOOK_PATH}"
         try:
             await bot.set_webhook(webhook_url, secret_token=settings.webhook_secret)
             logger.info("Telegram webhook registered at %s", webhook_url)
@@ -66,16 +68,13 @@ async def lifespan(app: FastAPI):
     if polling_task:
         polling_task.cancel()
 
-    try:
-        await outbox_task
-    except asyncio.CancelledError:
-        pass
-
+    # A background task that already died of something other than the cancel
+    # re-raises that exception here. Awaiting it bare aborted the rest of
+    # shutdown -- the webhook was never deregistered and the bot session was
+    # never closed -- and uvicorn reported "Application shutdown failed".
+    await _reap(outbox_task, "outbox worker")
     if polling_task:
-        try:
-            await polling_task
-        except asyncio.CancelledError:
-            pass
+        await _reap(polling_task, "Telegram polling")
 
     if use_webhook:
         try:
@@ -86,14 +85,22 @@ async def lifespan(app: FastAPI):
     try:
         await bot.session.close()
     except Exception:
-        pass
+        logger.exception("Failed to close the Telegram bot session")
 
-app = FastAPI(lifespan=lifespan)
 
+app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+# Only the Mini App origin, plus the Vite dev server. A wildcard would let any
+# page on the internet call the API with a leaked token, and it contradicted
+# what the Caddyfile, .env.example and docs/deploy.md all say happens here.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "*",
+        o for o in (
+            settings.miniapp_url,
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ) if o
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
@@ -109,24 +116,52 @@ async def root():
     return {
         "name": "Ustoz Jurnali API",
         "status": "online",
-        "docs": "/docs",
         "health": "/api/health",
     }
 
 
-@app.post("/webhook/telegram/{secret}")
-async def telegram_webhook(secret: str, request: Request):
-    if secret != settings.webhook_secret:
-        return Response(status_code=403)
+@app.post(WEBHOOK_PATH)
+async def telegram_webhook(request: Request):
+    """Receive one Telegram update.
+
+    The shared secret is checked from the header only -- it used to also sit in
+    the URL path, which put it into every proxy access log on disk.
+
+    Anything malformed returns 200 rather than raising: a 500 makes Telegram
+    redeliver the same update indefinitely, so one poison payload would loop
+    forever.
+    """
     token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if token != settings.webhook_secret:
+    if not hmac.compare_digest(token, settings.webhook_secret):
         return Response(status_code=403)
-    data = await request.json()
-    update = Update.model_validate(data)
-    await dp.feed_update(bot, update)
+    try:
+        data = await request.json()
+        update = Update.model_validate(data)
+    except Exception:
+        logger.exception("Discarding malformed Telegram update")
+        return Response()
+    try:
+        await dp.feed_update(bot, update)
+    except Exception:
+        logger.exception("Telegram update handler failed")
     return Response()
 
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    """Liveness + database reachability.
+
+    A process that is up but cannot reach its database is down as far as the
+    teacher is concerned, and UptimeRobot only ever sees this endpoint.
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("Health check failed to reach the database")
+        return Response(
+            content='{"status":"error","database":"unreachable"}',
+            status_code=503,
+            media_type="application/json",
+        )
+    return {"status": "ok", "database": "ok"}
