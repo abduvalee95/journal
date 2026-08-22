@@ -72,8 +72,30 @@ def upgrade() -> None:
     with op.batch_alter_table('outbox') as batch_op:
         batch_op.create_unique_constraint('uq_outbox_lesson_student', ['lesson_id', 'student_id'])
 
-    with op.batch_alter_table('groups', copy_from=_GROUPS_BEFORE) as batch_op:
-        batch_op.drop_constraint('uq_groups_weekday_is_active', type_='unique')
+    # The initial migration declared UNIQUE(weekday, is_active) without a name,
+    # and the two databases fill that blank differently. SQLite keeps it
+    # anonymous, so it can only be removed by rebuilding the table from a
+    # definition that names it -- which is what copy_from is for, the name
+    # there being a label, never SQL. Postgres invents its own name
+    # ("groups_weekday_is_active_key"), and batch mode on Postgres emits a real
+    # ALTER TABLE ... DROP CONSTRAINT, so the invented name is the only one
+    # that works. Asking the catalogue avoids depending on either convention.
+    if op.get_bind().dialect.name == 'postgresql':
+        op.execute("""
+            DO $$
+            DECLARE cname text;
+            BEGIN
+                SELECT conname INTO cname
+                FROM pg_constraint
+                WHERE conrelid = 'groups'::regclass AND contype = 'u';
+                IF cname IS NOT NULL THEN
+                    EXECUTE format('ALTER TABLE groups DROP CONSTRAINT %I', cname);
+                END IF;
+            END $$;
+        """)
+    else:
+        with op.batch_alter_table('groups', copy_from=_GROUPS_BEFORE) as batch_op:
+            batch_op.drop_constraint('uq_groups_weekday_is_active', type_='unique')
     op.create_index(
         'uq_groups_active_weekday',
         'groups',

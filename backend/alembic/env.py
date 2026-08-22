@@ -26,11 +26,19 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Alembic runs on the sync sqlite driver; the app itself uses the async
-# +aiosqlite driver (see app/db/session.py). Strip the async suffix here.
-config.set_main_option(
-    "sqlalchemy.url", settings.database_url.replace("+aiosqlite", "")
-)
+# Alembic runs migrations synchronously; the app itself talks to the database
+# through an async driver (see app/db/session.py). Swap the async driver for
+# its sync counterpart here.
+#
+# Dropping "+aiosqlite" alone was enough while SQLite was the only target: what
+# remains, "sqlite://", is a working sync URL. "postgresql+asyncpg://" is not
+# -- leaving it produces MissingGreenlet the moment env.py calls connect(),
+# because asyncpg cannot be driven from synchronous code.
+def _sync_url(url: str) -> str:
+    return url.replace("+aiosqlite", "").replace("+asyncpg", "+psycopg2")
+
+
+config.set_main_option("sqlalchemy.url", _sync_url(settings.database_url))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

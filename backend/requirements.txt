@@ -3,6 +3,13 @@ uvicorn[standard]==0.30.0
 aiogram==3.20.0
 sqlalchemy[asyncio]==2.0.35
 aiosqlite==0.20.0
+# Async Postgres driver for the app. aiosqlite stays: the test suite and local
+# development both run on SQLite, and session.py picks the dialect from
+# DATABASE_URL.
+asyncpg==0.30.0
+# Sync Postgres driver, used only by alembic/env.py -- migrations run
+# synchronously and asyncpg cannot be driven from sync code.
+psycopg2-binary==2.9.10
 alembic==1.13.2
 pydantic-settings==2.4.0
 pydantic==2.9.0

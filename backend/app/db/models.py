@@ -1,4 +1,13 @@
-from sqlalchemy import CheckConstraint, Column, ForeignKey, Index, Integer, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -27,7 +36,11 @@ class Student(Base):
     id          = Column(Integer, primary_key=True)
     group_id    = Column(Integer, ForeignKey("groups.id"), nullable=False)
     full_name   = Column(Text, nullable=False)
-    telegram_id = Column(Integer, unique=True, nullable=False)
+    # BigInteger, not Integer. Telegram ids passed 2^31 years ago -- the
+    # teacher's own id is already ~7e9 -- so on Postgres (int4, max 2147483647)
+    # every registration would fail with NumericValueOutOfRange. SQLite hid
+    # this: its INTEGER is variable-width, so the same column stored 7e9 fine.
+    telegram_id = Column(BigInteger, unique=True, nullable=False)
     joined_at   = Column(Text, nullable=False)
     is_active   = Column(Integer, nullable=False, default=1)
 
