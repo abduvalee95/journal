@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sameAttendance, toStudentRows, type LessonData, type StudentData } from "./types";
+import { getWeekdayNameUz, sameAttendance, toStudentRows, type LessonData, type StudentData } from "./types";
 
 const BASE: LessonData = {
   group: { id: 1, name: "Beginners A" },
@@ -108,5 +108,18 @@ describe("sameAttendance", () => {
 
   it("ignores fields that are not recorded attendance", () => {
     expect(sameAttendance(ROW, { ...ROW, full_name: "Renamed", att_id: 99 })).toBe(true);
+  });
+});
+
+describe("getWeekdayNameUz", () => {
+  it("returns correct Uzbek Cyrillic weekday names", () => {
+    expect(getWeekdayNameUz(1)).toBe("Душанба");
+    expect(getWeekdayNameUz(2)).toBe("Сешанба");
+    expect(getWeekdayNameUz(3)).toBe("Чоршанба");
+    expect(getWeekdayNameUz(4)).toBe("Пайшанба");
+    expect(getWeekdayNameUz(5)).toBe("Жума");
+    expect(getWeekdayNameUz(6)).toBe("Шанба");
+    expect(getWeekdayNameUz(7)).toBe("Якшанба");
+    expect(getWeekdayNameUz(99)).toBe("Kun 99");
   });
 });

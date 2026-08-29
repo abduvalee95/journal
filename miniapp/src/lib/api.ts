@@ -176,3 +176,73 @@ export function clearToken(): void {
   _expiresAt = 0;
   stopTokenRefresh();
 }
+
+// ── Group & Student API Helpers ─────────────────────────────
+
+import type {
+  GroupItem,
+  GroupDetail,
+  CreateGroupPayload,
+  UpdateGroupPayload,
+  CreateStudentPayload,
+  UpdateStudentPayload,
+  GroupStudent,
+} from "./types";
+
+export async function fetchGroups(includeInactive = false): Promise<GroupItem[]> {
+  const query = includeInactive ? "?include_inactive=true" : "";
+  return apiFetch<GroupItem[]>(`/api/groups${query}`);
+}
+
+export async function fetchGroupDetail(groupId: number): Promise<GroupDetail> {
+  return apiFetch<GroupDetail>(`/api/groups/${groupId}`);
+}
+
+export async function createGroup(payload: CreateGroupPayload): Promise<GroupItem> {
+  return apiFetch<GroupItem>("/api/groups", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateGroup(
+  groupId: number,
+  payload: UpdateGroupPayload,
+): Promise<GroupItem> {
+  return apiFetch<GroupItem>(`/api/groups/${groupId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteGroup(groupId: number): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/groups/${groupId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function addStudentToGroup(
+  groupId: number,
+  payload: CreateStudentPayload,
+): Promise<GroupStudent> {
+  return apiFetch<GroupStudent>(`/api/groups/${groupId}/students`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateStudent(
+  studentId: number,
+  payload: UpdateStudentPayload,
+): Promise<GroupStudent> {
+  return apiFetch<GroupStudent>(`/api/students/${studentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteStudent(studentId: number): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/students/${studentId}`, {
+    method: "DELETE",
+  });
+}

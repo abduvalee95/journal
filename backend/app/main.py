@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.api import auth as auth_api
+from app.api import groups as groups_api
 from app.api import lessons as lessons_api
 from app.bot.handlers import confirm as confirm_handler
 from app.bot.handlers import start as start_handler
@@ -103,11 +104,13 @@ app.add_middleware(
         ) if o
     ],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Telegram-Bot-Api-Secret-Token"],
 )
 
 app.include_router(auth_api.router)
+app.include_router(groups_api.router)
+app.include_router(groups_api.students_router)
 app.include_router(lessons_api.router)
 
 

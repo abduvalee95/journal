@@ -116,6 +116,10 @@ describe("App — navigation", () => {
     await waitFor(() => expect(screen.getByText("Кеча дарс бўлмаган.")).toBeInTheDocument());
     expect(screen.getByRole("tab", { name: "Кеча" })).toHaveAttribute("aria-selected", "true");
 
+    await user.click(screen.getByRole("tab", { name: "Гуруҳлар" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Гуруҳлар" })).toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: "Гуруҳлар" })).toHaveAttribute("aria-selected", "true");
+
     await user.click(screen.getByRole("tab", { name: "Бугун" }));
     await waitFor(() => expect(screen.getByText("Бугун дарс йўқ.")).toBeInTheDocument());
     expect(screen.queryByText("Кеча дарс бўлмаган.")).not.toBeInTheDocument();

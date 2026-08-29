@@ -3,12 +3,14 @@ import { getInitData, expandApp } from "./lib/telegram";
 import { authenticate, stopTokenRefresh, ApiError } from "./lib/api";
 import Today from "./screens/Today";
 import Yesterday from "./screens/Yesterday";
+import Groups from "./screens/Groups";
 
-type Screen = "today" | "yesterday";
+type Screen = "today" | "yesterday" | "groups";
 
 const TABS: { id: Screen; label: string }[] = [
   { id: "today", label: "Бугун" },
   { id: "yesterday", label: "Кеча" },
+  { id: "groups", label: "Гуруҳлар" },
 ];
 
 export default function App() {
@@ -101,7 +103,7 @@ export default function App() {
           releases the button before the incoming one claims it. Unsaved work
           survives the unmount through lib/draft.ts. */}
       <div role="tabpanel" id={`panel-${screen}`} aria-labelledby={`tab-${screen}`}>
-        {screen === "today" ? <Today /> : <Yesterday />}
+        {screen === "today" ? <Today /> : screen === "yesterday" ? <Yesterday /> : <Groups />}
       </div>
     </div>
   );

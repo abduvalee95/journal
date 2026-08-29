@@ -60,3 +60,67 @@ export function toStudentRows(data: LessonData): StudentData[] {
     };
   });
 }
+
+export interface GroupItem {
+  id: number;
+  name: string;
+  weekday: number;
+  start_time: string | null;
+  is_active: number;
+  student_count: number;
+}
+
+export interface GroupStudent {
+  id: number;
+  full_name: string;
+  telegram_id: number;
+  joined_at: string;
+  is_active: number;
+}
+
+export interface GroupDetail {
+  id: number;
+  name: string;
+  weekday: number;
+  start_time: string | null;
+  is_active: number;
+  students: GroupStudent[];
+}
+
+export interface CreateGroupPayload {
+  name: string;
+  weekday: number;
+  start_time?: string | null;
+}
+
+export interface UpdateGroupPayload {
+  name?: string;
+  weekday?: number;
+  start_time?: string | null;
+  is_active?: number;
+}
+
+export interface CreateStudentPayload {
+  full_name: string;
+  telegram_id?: number | null;
+}
+
+export interface UpdateStudentPayload {
+  full_name?: string;
+  group_id?: number;
+  is_active?: number;
+}
+
+export const WEEKDAYS_UZ: Record<number, string> = {
+  1: "Душанба",
+  2: "Сешанба",
+  3: "Чоршанба",
+  4: "Пайшанба",
+  5: "Жума",
+  6: "Шанба",
+  7: "Якшанба",
+};
+
+export function getWeekdayNameUz(weekday: number): string {
+  return WEEKDAYS_UZ[weekday] ?? `Kun ${weekday}`;
+}
