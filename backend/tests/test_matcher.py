@@ -66,3 +66,13 @@ def test_ambiguous_name_is_deterministic():
     ]
     results = {match_names(["Aziza"], similar_students)["Aziza"] for _ in range(20)}
     assert len(results) == 1, f"match_names is non-deterministic across repeated calls: {results}"
+
+
+def test_reversed_name_order():
+    """Matches even if spoken/extracted as 'Karimova Aziza'."""
+    assert match_names(["Karimova Aziza"], STUDENTS)["Karimova Aziza"] == 1
+
+
+def test_unique_last_name():
+    """Matches unique last name in group."""
+    assert match_names(["Yusupova"], STUDENTS)["Yusupova"] == 3

@@ -148,7 +148,11 @@ async def _pipeline(bot, lesson_id, file_id, student_names, student_map, chat_id
         if file_id:
             file = await bot.get_file(file_id)
             raw = await bot.download_file(file.file_path)
-            transcript = await transcribe(raw.read())
+            prompt = (
+                f"O'zbek tili dars jurnali. O'quvchilar: {', '.join(student_names)}. "
+                "Mavzu, uyga vazifa, baholar."
+            ) if student_names else None
+            transcript = await transcribe(raw.read(), prompt=prompt)
         else:
             transcript = text_note or ""
 

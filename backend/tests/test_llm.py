@@ -164,3 +164,58 @@ async def test_extract_lesson_error_429():
         await extract_lesson("transcript", ["Aziza Karimova"], _transport=transport)
 
     assert exc_info.value.response.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_extract_lesson_groq_provider(monkeypatch):
+    """Assert on the request built when Groq provider is active."""
+    monkeypatch.setattr(settings, "llm_api_key", "gsk_testkey12345")
+    monkeypatch.setattr(settings, "llm_provider", "groq")
+    monkeypatch.setattr(settings, "llm_model", "claude-haiku-4-5-20251001")  # default should resolve to llama-3.3
+
+    captured_request = None
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_request
+        captured_request = request
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps({
+                                "topic": "Present Simple",
+                                "summary_public": "Dars o'tildi",
+                                "homework": "Mashq 1",
+                                "per_student": [
+                                    {
+                                        "name_mentioned": "Aziza Karimova",
+                                        "attendance_hint": "present",
+                                        "grade_suggested": 5,
+                                        "note_public": "Yaxshi",
+                                    }
+                                ],
+                            })
+                        }
+                    }
+                ]
+            },
+        )
+
+    import json
+    transport = httpx.MockTransport(mock_handler)
+    res = await extract_lesson(
+        "Aziza 5 oldi.",
+        ["Aziza Karimova"],
+        _transport=transport,
+    )
+
+    assert captured_request is not None
+    assert str(captured_request.url) == "https://api.groq.com/openai/v1/chat/completions"
+    assert captured_request.headers["authorization"] == "Bearer gsk_testkey12345"
+
+    body = json.loads(captured_request.content)
+    assert body["model"] == "llama-3.3-70b-versatile"
+    assert body["response_format"] == {"type": "json_object"}
+    assert res["topic"] == "Present Simple"

@@ -26,6 +26,7 @@ def _provider() -> str:
 async def transcribe(
     audio_bytes: bytes,
     filename: str = "audio.oga",
+    prompt: str | None = None,
     _transport: httpx.MockTransport | None = None,
 ) -> str:
     """Transcribe audio bytes to text.
@@ -33,6 +34,7 @@ async def transcribe(
     Args:
         audio_bytes: raw audio file bytes (OGG expected)
         filename: filename sent in the multipart payload
+        prompt: optional context prompt to bias vocabulary and names for ASR
         _transport: optional httpx transport for testing; it decides how the
             request is carried, not which provider is called.
 
@@ -52,6 +54,8 @@ async def transcribe(
         url = GROQ_WHISPER_URL
         headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
         data = {"model": model, "language": "uz"}
+        if prompt:
+            data["prompt"] = prompt
     else:
         url = SCRIBE_URL
         headers = {"xi-api-key": settings.elevenlabs_api_key}

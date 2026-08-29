@@ -200,3 +200,33 @@ async def test_transcribe_custom_filename():
     stored_filename, stored_bytes = fields["file"]
     assert stored_filename == custom_filename, f"Expected filename='{custom_filename}', got '{stored_filename}'"
     assert stored_bytes == audio_bytes
+
+
+@pytest.mark.asyncio
+async def test_transcribe_groq_whisper(monkeypatch):
+    """Groq Whisper provider request shape and prompt support."""
+    monkeypatch.setattr(settings, "asr_provider", "groq")
+    monkeypatch.setattr(settings, "llm_api_key", "gsk_test123")
+
+    captured_request = None
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_request
+        captured_request = request
+        return httpx.Response(200, json={"text": "Transcribed Uzbek text"})
+
+    transport = httpx.MockTransport(mock_handler)
+    res = await transcribe(
+        b"fake audio",
+        prompt="Aziza, Bobur, Present Simple",
+        _transport=transport,
+    )
+
+    assert res == "Transcribed Uzbek text"
+    assert str(captured_request.url) == "https://api.groq.com/openai/v1/audio/transcriptions"
+    assert captured_request.headers["authorization"] == "Bearer gsk_test123"
+
+    fields = _extract_multipart_fields(captured_request)
+    assert fields["model"] == "whisper-large-v3-turbo"
+    assert fields["language"] == "uz"
+    assert fields["prompt"] == "Aziza, Bobur, Present Simple"
